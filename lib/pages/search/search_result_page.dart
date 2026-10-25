@@ -8,6 +8,9 @@ import 'package:mtbbs/core/app/site_session.dart';
 import 'package:mtbbs/core/app/site_scope.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
 import 'package:mtbbs/widgets/thread/thread_grid.dart';
+import 'package:provider/provider.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
+import 'package:mtbbs/providers/settings_provider.dart';
 
 /// 站内搜索结果页
 ///
@@ -239,12 +242,25 @@ class _SearchResultPageState extends State<SearchResultPage> {
     );
   }
 
+  // 功能①：帖子列表过滤（各列表点独立配置，本地投影）
   Widget _buildResults() {
+    final scopeCfg = context
+        .read<SettingsProvider>()
+        .threadScopeFilter(kThreadScopeSearch);
     return ThreadGrid(
       controller: _listCtrl,
       highlight: _keyword,
       emptyText: '没有找到匹配结果',
       emptyIcon: Icons.search_off,
+      itemFilter: (items) {
+        final s = context.read<SettingsProvider>();
+        return filterThreadItemsForScope(
+          items,
+          s.threadScopeFilter(kThreadScopeSearch),
+        );
+      },
+      // 屏蔽补页：该列表点启用屏蔽时，整页被屏蔽空自动向后扩窗拼接
+      autoExtendOnDeficit: scopeCfg.enabled && !scopeCfg.isNoop,
     );
   }
 

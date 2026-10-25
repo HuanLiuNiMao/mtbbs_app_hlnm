@@ -19,6 +19,7 @@ import 'package:mtbbs/core/parser/bbcode2html.dart';
 import 'package:mtbbs/core/settings/settings_repository.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/database_helper.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
 import 'package:mtbbs/core/utils/frequent_order.dart';
 import 'package:mtbbs/models/settings/app_settings.dart';
 import 'package:mtbbs/models/settings/settings_defaults.dart'
@@ -229,6 +230,18 @@ class SettingsProvider extends ChangeNotifier {
   /// 上次检查更新的时间（Unix 秒，0 = 从未检查）；自动检查 1 小时内不重复
   int _lastUpdateCheckAt = 0;
 
+  // ==================== 内容过滤（个人主页主题 + 评论区） ====================
+  /// 主页主题列表板块过滤：true = 屏蔽列表内板块（黑名单，默认）
+  bool _threadFilterModeBlock = true;
+  /// 板块过滤名单（黑名单时为要屏蔽的板块名；白名单时为仅保留的板块名）
+  List<String> _threadFilterBoards = [];
+  /// 主页主题列表标题关键词过滤（命中即隐藏，逗号/换行分隔，空 = 不过滤）
+  List<String> _threadFilterKeywords = [];
+  /// 评论区关键词过滤（命中即隐藏整层楼，逗号/换行分隔，空 = 不过滤）
+  List<String> _commentFilterKeywords = [];
+  /// 评论屏蔽总开关（对齐 mtlite「评论屏蔽」，默认开）
+  bool _commentBlockEnabled = true;
+
   // ==================== 留在类体内的成员 ====================
   //
   // 部分设置项 model（如 content_settings.dart / shortcut_settings.dart）
@@ -296,6 +309,75 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> setHistoryMaxCount(int count) async {
     _historyMaxCount = count.clamp(10, 1000);
     await _persistApp();
+    notifyListeners();
+  }
+
+  // ==================== 内容过滤 getter / setter ====================
+  // （留在类体内：settings model 通过回调持有 provider，见上方说明）
+
+  bool get threadFilterModeBlock => _threadFilterModeBlock;
+  List<String> get threadFilterBoards => List.unmodifiable(_threadFilterBoards);
+  List<String> get threadFilterKeywords =>
+      List.unmodifiable(_threadFilterKeywords);
+  List<String> get commentFilterKeywords =>
+      List.unmodifiable(_commentFilterKeywords);
+  bool get commentBlockEnabled => _commentBlockEnabled;
+
+  Future<void> setThreadFilterModeBlock(bool value) async {
+    _threadFilterModeBlock = value;
+    await _db.setSettingBool('threadFilterModeBlock', value);
+    notifyListeners();
+  }
+
+  Future<void> setThreadFilterBoards(List<String> boards) async {
+    _threadFilterBoards = List.of(boards);
+    await _db.setSetting('threadFilterBoards', jsonEncode(_threadFilterBoards));
+    notifyListeners();
+  }
+
+  Future<void> setThreadFilterKeywords(List<String> keywords) async {
+    _threadFilterKeywords = List.of(keywords);
+    await _db.setSetting(
+      'threadFilterKeywords',
+      jsonEncode(_threadFilterKeywords),
+    );
+    notifyListeners();
+  }
+
+  Future<void> setCommentFilterKeywords(List<String> keywords) async {
+    _commentFilterKeywords = List.of(keywords);
+    await _db.setSetting(
+      'commentFilterKeywords',
+      jsonEncode(_commentFilterKeywords),
+    );
+    notifyListeners();
+  }
+  Future<void> setCommentBlockEnabled(bool value) async {
+    _commentBlockEnabled = value;
+    await _db.setSettingBool('commentBlockEnabled', value);
+    notifyListeners();
+  }
+
+  // ==================== 按列表点的帖子屏蔽配置（功能①扩展） ====================
+  /// 四个列表点（community / guide / search / user）各一套独立配置，
+  /// 持久化键 `threadScopeFilter_<scope>`，值为 ThreadScopeFilter 的 JSON。
+  Map<String, ThreadScopeFilter> _threadScopeFilters = {};
+  static const List<String> _kThreadScopes = [
+    kThreadScopeCommunity,
+    kThreadScopeGuide,
+    kThreadScopeSearch,
+    kThreadScopeUser,
+  ];
+  /// 取某列表点的过滤配置；未配置时返回默认空配置（不过滤）
+  ThreadScopeFilter threadScopeFilter(String scope) =>
+      _threadScopeFilters[scope] ?? const ThreadScopeFilter();
+
+  Future<void> setThreadScopeFilter(String scope, ThreadScopeFilter f) async {
+    _threadScopeFilters[scope] = f;
+    await _db.setSetting(
+      'threadScopeFilter_$scope',
+      jsonEncode(f.toJson()),
+    );
     notifyListeners();
   }
 }

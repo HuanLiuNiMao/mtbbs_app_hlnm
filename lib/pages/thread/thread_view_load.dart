@@ -113,15 +113,31 @@ extension on _ThreadViewPageState {
     }
   }
 
+  /// 屏蔽补页缺额检测（内容过滤）：过滤后可见评论数不足一页基准时，
+  /// 自动向后扩窗拉页拼接——避免「翻好几页全是被屏蔽的楼层」。
+  ///
+  /// 由布局层（thread_view_layout）在过滤后调用；串行扩窗，一次一页。
+  Future<void> _maybeExtendCommentWindow(int visibleCount) async {
+    if (_pageLoading) return;
+    if (_isCacheMode) return;
+    if (visibleCount >= _commentPageSizeHint) return;
+    final width = _windowEnd - _currentPage + 1;
+    if (width >= _ThreadViewPageState._commentMaxWindowWidth) return;
+    if (_totalPages > 0 && _windowEnd >= _totalPages) return;
+    await _loadCommentPage(_windowEnd + 1, extend: true);
+  }
+
   /// 只读缓存模式：从快照取页（实现见 thread_view_cache.dart）
   Future<bool> _loadCommentPage(
     int page, {
     bool force = false,
     bool switchPage = true,
+    bool extend = false,
   }) async {
     if (_isCacheMode) return _loadCachedCommentPage(page, switchPage: switchPage);
     if (_pageLoading) return false;
     if (!force && _commentPages.containsKey(page)) return true;
+    if (extend && _totalPages > 0 && page > _totalPages) return false;
     _setState(() {
       _pageLoading = true;
     });
@@ -139,12 +155,39 @@ extension on _ThreadViewPageState {
       final data = ThreadViewData.fromMap(raw, widget.tid);
       if (!mounted) return false;
       final actualPage = data.currentPage;
-      _commentPages[actualPage] = List<PostItem>.from(data.posts);
-      if (switchPage) _currentPage = actualPage;
-      AppLogger.i(
-        'PAGE',
-        'loaded comment page $actualPage (${data.posts.length} posts)',
-      );
+      if (extend && actualPage > _currentPage) {
+        // 屏蔽补页扩窗模式：结果按 pid 去重后拼进当前页展示窗口，
+        // 不切换 _currentPage（页码锚点不动，窗口向右延伸）
+        final target = _commentPages[_currentPage] ?? <PostItem>[];
+        final seen = target.map((p) => p.pid).toSet();
+        final merged = List<PostItem>.from(target);
+        var added = 0;
+        for (final p in data.posts) {
+          if (seen.add(p.pid)) {
+            merged.add(p);
+            added++;
+          }
+        }
+        _commentPages[_currentPage] = merged;
+        if (actualPage > _windowEnd) _windowEnd = actualPage;
+        AppLogger.i(
+          'PAGE',
+          'extendWindow: +$added posts from page $actualPage '
+          '(window $_currentPage-$_windowEnd, total=${merged.length})',
+        );
+      } else {
+        _commentPages[actualPage] = List<PostItem>.from(data.posts);
+        if (switchPage) _currentPage = actualPage;
+        if (actualPage > _windowEnd) _windowEnd = actualPage;
+        // 校准一页基准条数（扩窗凑可见量的目标线）
+        if (data.posts.length > _commentPageSizeHint) {
+          _commentPageSizeHint = data.posts.length;
+        }
+        AppLogger.i(
+          'PAGE',
+          'loaded comment page $actualPage (${data.posts.length} posts)',
+        );
+      }
       // 自动缓存只回写已加载页，不额外抓取
       unawaited(
         _writeCommentPageCache(actualPage, data.posts, data.totalPages),
@@ -173,6 +216,8 @@ extension on _ThreadViewPageState {
     if (page < 1 || page > _totalPages || page == _currentPage) return;
     _setState(() {
       _currentPage = page;
+      // 跳页 = 窗口重置为该单页（屏蔽补页从头开始）
+      _windowEnd = page;
     });
     _recordThreadHistory();
     if (!_commentPages.containsKey(page)) _loadCommentPage(page);
@@ -226,6 +271,17 @@ extension on _ThreadViewPageState {
     if (page != null) _goToPage(page);
   }
 
+  /// 下一页按钮统一入口：
+  /// - 只读缓存模式：走 [_goNextPage]，只跳已缓存页（上游行为）；
+  /// - 正常模式：跳「窗口末页 + 1」，扩窗模式下避免重看已拼接的楼层。
+  void _goNextPageOrExtend() {
+    if (_isCacheMode) {
+      _goNextPage();
+    } else {
+      _goToPage(_windowEnd + 1);
+    }
+  }
+
   Future<void> _onRefresh() async {
     // 缓存模式：重新读快照即可，绝不走网络
     if (_isCacheMode) {
@@ -252,6 +308,8 @@ extension on _ThreadViewPageState {
         _totalPages = d.totalPages;
         _data = d;
         _liked = d.mainPost?.isLiked ?? false;
+        // 刷新第 1 页 = 窗口重置为单页（第 1 页）
+        if (_currentPage == 1) _windowEnd = 1;
       });
       _writeAutoCache(d);
       AppLogger.i('PAGE', 'refresh page1 ok (${d.posts.length} posts)');

@@ -62,9 +62,13 @@ extension on _ThreadViewPageState {
                 totalPages: _totalPages,
                 pageLoading: _pageLoading,
                 onPrev: _canGoPrev ? _goPrevPage : null,
-                onNext: _canGoNext ? _goNextPage : null,
+                // 扩窗模式：下一页跳「窗口末页+1」，避免重看已拼接内容
+                onNext: (_isCacheMode ? _canGoNext : _windowEnd < _totalPages)
+                    ? _goNextPageOrExtend
+                    : null,
                 onPageTap: _showPagePicker,
                 onRefresh: _isCacheMode ? null : _refreshCurrentPage,
+                windowEnd: _windowEnd,
               ),
             ),
           ),
@@ -108,7 +112,7 @@ extension on _ThreadViewPageState {
   // ==================== 评论区 ====================
 
   Widget _buildCommentContent() {
-    final currentPosts = _commentPages[_currentPage];
+    var currentPosts = _commentPages[_currentPage];
     // 只读缓存：缺失页 = 未缓存，与「已缓存但无评论」区分
     if (_isCacheMode &&
         _cacheSnapshot?.commentPages.containsKey(_currentPage) != true) {
@@ -122,6 +126,24 @@ extension on _ThreadViewPageState {
         padding: EdgeInsets.all(32),
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
+    }
+    // 功能②：评论屏蔽（命中即隐藏整层楼；楼主/回复别人豁免；空名单或开关关闭时原样返回）
+    final settings = context.read<SettingsProvider>();
+    currentPosts = currentPosts == null
+        ? null
+        : filterPostItems(
+            currentPosts,
+            settings.commentFilterKeywords,
+            enabled: settings.commentBlockEnabled,
+          );
+    // 功能②扩展：屏蔽补页缺额检测——过滤后可见不足一页基准时自动向后扩窗。
+    // 闭包异步执行（不阻塞 build）；_pageLoading 在 _loadCommentPage 内部防重入。
+    if (settings.commentBlockEnabled &&
+        currentPosts != null &&
+        currentPosts.length < _commentPageSizeHint &&
+        (_windowEnd - _currentPage + 1) <
+            _ThreadViewPageState._commentMaxWindowWidth) {
+      Future<void>(() => _maybeExtendCommentWindow(currentPosts!.length));
     }
     return CommentSection(
       posts: currentPosts ?? [],
@@ -161,9 +183,13 @@ extension on _ThreadViewPageState {
           totalPages: _totalPages,
           pageLoading: _pageLoading,
           onPrev: _canGoPrev ? _goPrevPage : null,
-          onNext: _canGoNext ? _goNextPage : null,
+          // 扩窗模式：下一页跳「窗口末页+1」，避免重看已拼接内容
+          onNext: (_isCacheMode ? _canGoNext : _windowEnd < _totalPages)
+              ? _goNextPageOrExtend
+              : null,
           onPageTap: _showPagePicker,
           onRefresh: _isCacheMode ? null : _refreshCurrentPage,
+          windowEnd: _windowEnd,
         ),
         const Divider(height: 1),
         Expanded(child: SingleChildScrollView(child: _buildCommentContent())),

@@ -26,18 +26,91 @@ class ThreadListController extends ChangeNotifier {
   static const int _maxCachePages = 20;
 
   ThreadListController({required this.fetchFn});
-
   // ==================== 分页状态 ====================
-
   bool get hasPrev => page > 1;
   bool get hasNext => true; // 始终允许下一页
+  // ==================== 屏蔽补页窗口（功能①扩展） ====================
+  /// 当前展示窗口覆盖的服务端页区间 [windowStart, windowEnd]。
+  ///
+  /// 本地屏蔽把整页过滤空时，自动向后扩窗拉页拼接进 [items]，
+  /// 凑满「一页的可见量」再渲染——用户不再需要连续翻好几页找幸存帖。
+  int windowStart = 1;
+  int windowEnd = 1;
+  /// 一页的基准条数（首次加载后按实际首页条数校准；扩窗凑可见的目标量）
+  int pageSizeHint = 20;
+  /// 窗口最大宽度（服务端页数）——防止极端情况下把几十页全拉下来
+  static const int maxWindowWidth = 5;
+  /// 扩窗请求进行中（防重入；Grid 缺额检测据此跳过）
+  bool _extending = false;
+  bool get isExtending => _extending;
+  int get windowWidth => windowEnd - windowStart + 1;
+  /// 还能不能继续扩窗
+  bool get canExtendWindow =>
+      !_extending &&
+      state != LoadState.loading &&
+      windowWidth < maxWindowWidth &&
+      (totalPages <= 0 || windowEnd < totalPages);
 
   // ==================== 加载 / 刷新 ====================
+
+  /// 重置窗口为单页（loadInitial / refresh / goToPage 后调用）
+  void _resetWindow() {
+    windowStart = page;
+    windowEnd = page;
+  }
+  /// 屏蔽补页：把 [windowEnd]+1 拉回来拼进 [items]，凑可见量。
+  ///
+  /// 由 Grid 的缺额检测触发（可见条数 < pageSizeHint 且可扩窗时）。
+  Future<void> extendWindow() async {
+    if (!canExtendWindow) return;
+    _extending = true;
+    notifyListeners();
+    final nextPage = windowEnd + 1;
+    try {
+      final result = await fetchFn(page: nextPage);
+      _throwIfFailed(result);
+      final newItems = _parseItems(result);
+      final tp = result['totalPages'] as int?;
+      if (tp != null && tp > 0) totalPages = tp;
+      // 按 threadId 去重后拼接
+      final seen = items.map((i) => i.threadId).toSet();
+      final merged = List<ThreadItem>.from(items);
+      var added = 0;
+      for (final it in newItems) {
+        if (seen.add(it.threadId)) {
+          merged.add(it);
+          added++;
+        }
+      }
+      items = merged;
+      windowEnd = nextPage;
+      if (newItems.isNotEmpty) _cachePage(nextPage, newItems);
+      AppLogger.i(
+        'PAGE',
+        'extendWindow: +$added items from page $nextPage '
+        '(window $windowStart-$windowEnd, items=${items.length})',
+      );
+    } catch (e) {
+      // 扩窗失败静默降级：保留现有内容，不再扩（避免用户面见报错）
+      AppLogger.w('PAGE', 'extendWindow failed: $e');
+    }
+    _extending = false;
+    notifyListeners();
+  }
+  /// 下一窗：跳过当前窗口，直接翻到「窗口末页+1」
+  Future<void> nextWindow() async {
+    if (_extending) return;
+    final target = windowEnd + 1;
+    // 已知总页数且越界：不再请求不存在的页（旧 nextPage 越界会闪错误态）
+    if (totalPages > 0 && target > totalPages) return;
+    await goToPage(target);
+  }
 
   /// 首次加载 / 重置加载
   Future<void> loadInitial() async {
     state = LoadState.loading;
     page = 1;
+    _resetWindow();
     _pageCache.clear();
     notifyListeners();
 
@@ -46,6 +119,8 @@ class ThreadListController extends ChangeNotifier {
       _throwIfFailed(result);
       items = _parseItems(result);
       totalPages = result['totalPages'] as int? ?? 0;
+      // 校准一页基准条数（扩窗凑可见量的目标线）
+      if (items.length > pageSizeHint) pageSizeHint = items.length;
       _cachePage(1, items);
       state = LoadState.loaded;
       AppLogger.i('PAGE', 'loaded ${items.length} items');
@@ -62,6 +137,7 @@ class ThreadListController extends ChangeNotifier {
     if (state == LoadState.loading) return;
     _pageCache.clear();
     page = 1;
+    _resetWindow();
     notifyListeners();
 
     try {
@@ -88,12 +164,14 @@ class ThreadListController extends ChangeNotifier {
     if (_pageCache.containsKey(targetPage)) {
       items = List.from(_pageCache[targetPage]!);
       page = targetPage;
+      _resetWindow();
       notifyListeners();
       return;
     }
 
     state = LoadState.loading;
     page = targetPage;
+    _resetWindow();
     notifyListeners();
 
     try {

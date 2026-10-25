@@ -110,3 +110,47 @@ Map<String, dynamic> _parseItem(dom.Element li) {
 
   return item;
 }
+
+/// 解析他人主页的关注状态与操作令牌。
+///
+/// 页面：`home.php?mod=space&uid={uid}&do=profile`（他人视角）。
+/// 关注按钮（Discuz「收听」）DOM：
+/// ```html
+/// <a id="follow{uid}" href="home.php?mod=spacecp&ac=follow&op=add&hash=xxx"
+///    onclick="showWindow(...)" class="xi2">收听TA</a>
+/// <!-- 已收听时 class 含 flw_btn_unfo / 文案「取消收听」，href op=del -->
+/// ```
+/// 返回：
+/// - `isFollowing`：当前是否已关注（true / false / null=未登录或未渲染按钮）
+/// - `followHash`：`op=add&hash=xxx` 中的 hash（关注/取关共用）
+/// - `formhash`：页面全局令牌（写操作必填）
+Map<String, dynamic> parseFollowStatus(String body, int statusCode) {
+  final pre = prepareDoc(body, statusCode);
+  if (pre.error != null) return pre.error!;
+  final doc = pre.doc!;
+
+  // 页面全局令牌
+  final formhashInput = doc.querySelector('input[name="formhash"]');
+  final formhash = formhashInput?.attributes['value'] ?? '';
+
+  // 关注按钮：已关注时 class 为 flw_btn_unfo（与关注/粉丝列表页同一套类名）
+  final btn = doc.querySelector('#ct a.flw_btn_unfo') ??
+      doc.querySelector('#ct a.flw_btn_fo');
+
+  bool? isFollowing;
+  String followHash = '';
+  if (btn != null) {
+    isFollowing = btn.classes.contains('flw_btn_unfo');
+    // href 形如 home.php?mod=spacecp&ac=follow&op=add&hash=abcdef
+    final href = btn.attributes['href'] ?? '';
+    final match = RegExp(r'hash=([0-9a-f]+)').firstMatch(href);
+    if (match != null) followHash = match.group(1)!;
+  }
+
+  return {
+    'success': true,
+    'isFollowing': isFollowing,
+    'followHash': followHash,
+    'formhash': formhash,
+  };
+}

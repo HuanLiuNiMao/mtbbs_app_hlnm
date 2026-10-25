@@ -50,6 +50,73 @@ extension SettingsPersistence on SettingsProvider {
     );
 
     _notify();
+
+    // ==================== 内容过滤（功能①②，与 AppSettings 文档并行的独立 KV） ====================
+    // 布尔：黑/白名单模式（默认黑名单）
+    _threadFilterModeBlock =
+        (await _db.getSettingBool('threadFilterModeBlock')) ?? true;
+    // 三个名单：JSON 数组持久化，损坏/缺省时回退默认（[] / 不过滤）
+    _threadFilterBoards = _decodeStringList(
+      await _db.getSetting('threadFilterBoards'),
+    );
+    _threadFilterKeywords = _decodeStringList(
+      await _db.getSetting('threadFilterKeywords'),
+    );
+    _commentFilterKeywords = _decodeStringList(
+      await _db.getSetting('commentFilterKeywords'),
+    );
+    // 评论屏蔽总开关（默认开，对齐 mtlite「评论屏蔽」）
+    _commentBlockEnabled = (await _db.getSettingBool('commentBlockEnabled')) ?? true;
+    // 评论屏蔽词预填：首次运行/内置词表版本升级时，把内置词表合并成的
+    // 一条正则写进设置（对齐 mtlite「屏蔽词预置」机制——旧内置正则以
+    // 「康康看下|」开头据此剔除，用户自定义词保留，可自由删改）。
+    final wordsVersion = await _db.getSetting('commentBlockWordsVersion');
+    if (wordsVersion != kCommentBlockWordsVersion) {
+      final keep = _commentFilterKeywords
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty && !l.startsWith('康康看下|'))
+          .toList();
+      keep.add(kCommentBlockWordsRegex);
+      _commentFilterKeywords = keep;
+      await _db.setSetting(
+        'commentFilterKeywords',
+        jsonEncode(_commentFilterKeywords),
+      );
+      await _db.setSetting('commentBlockWordsVersion', kCommentBlockWordsVersion);
+    }
+    // ==================== 按列表点的帖子屏蔽配置（功能①扩展） ====================
+    // 逐点加载 JSON 配置；损坏/缺省时回退空配置（不过滤）
+    _threadScopeFilters = {};
+    for (final scope in SettingsProvider._kThreadScopes) {
+      final raw = await _db.getSetting('threadScopeFilter_$scope');
+      if (raw == null || raw.isEmpty) continue;
+      try {
+        _threadScopeFilters[scope] = ThreadScopeFilter.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
+      } catch (_) {
+        // 单点损坏不影响其他点
+      }
+    }
+    // 旧全局配置自动迁移：threadScopeFilter_* 均未写入且旧键有内容时，
+    // 把旧全局配置复制为四个列表点的初始配置（只迁移一次）
+    if (_threadScopeFilters.isEmpty &&
+        (_threadFilterBoards.isNotEmpty || _threadFilterKeywords.isNotEmpty)) {
+      for (final scope in SettingsProvider._kThreadScopes) {
+        final f = ThreadScopeFilter(
+          enabled: true,
+          modeBlock: _threadFilterModeBlock,
+          boards: List.of(_threadFilterBoards),
+          keywords: List.of(_threadFilterKeywords),
+        );
+        _threadScopeFilters[scope] = f;
+        await _db.setSetting(
+          'threadScopeFilter_$scope',
+          jsonEncode(f.toJson()),
+        );
+      }
+    }
+    _notify();
   }
 
   /// 应用设置文档 → Provider 字段
@@ -445,4 +512,18 @@ extension SettingsPersistence on SettingsProvider {
     await _persistApp();
     _notify();
   }
+}
+
+/// 解析 JSON 数组字符串为 List<String>；null / 损坏时返回空列表
+List<String> _decodeStringList(String? raw) {
+  if (raw == null || raw.isEmpty) return [];
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is List) {
+      return decoded.whereType<String>().toList();
+    }
+  } catch (_) {
+    // 损坏数据 → 回退为空（不过滤），不中断启动
+  }
+  return [];
 }

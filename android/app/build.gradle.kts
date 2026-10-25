@@ -30,6 +30,12 @@ val dartDefines: Map<String, String> = run {
 }
 val isBeta = dartDefines["BETA"] == "true"
 
+// 不签名构建开关：flutter build apk --release -PUNSIGNED=true
+// （或 --dart-define=UNSIGNED=true）
+// 用于同时产出「有签名」与「未签名」两种 APK（见 .github/workflows/release.yml）。
+val isUnsigned = (project.findProperty("UNSIGNED") as? String)?.lowercase() == "true" ||
+    dartDefines["UNSIGNED"] == "true"
+
 // 签名配置：key.properties 四项齐全且 key.jks 能成功加载才启用正式签名，
 // 否则（无 key.properties / 文件缺失 / 密码错误）回退 **MT 内置签名**（见 mtTestkey），
 // 构建不报错。
@@ -128,8 +134,15 @@ android {
             } else {
                 // 有正式签名用正式签名；否则用 MT 内置签名（AOSP 公开 testkey），
                 // 保证不同来源的包签名一致、可覆盖安装（本地自测/CI 未配 Secrets 均不报错）
-                signingConfig = if (keystoreOk) signingConfigs.getByName("release")
-                else signingConfigs.getByName("mtTestkey")
+                //
+                // UNSIGNED=true（-PUNSIGNED=true 或 --dart-define=UNSIGNED=true）时改为
+                // 不设置 signingConfig，产出 app-release-unsigned.apk，供「同时发布签名/未签名」用。
+                if (isUnsigned) {
+                    // 不签名构建：不设置 signingConfig，产出 app-release-unsigned.apk
+                } else {
+                    signingConfig = if (keystoreOk) signingConfigs.getByName("release")
+                    else signingConfigs.getByName("mtTestkey")
+                }
             }
         }
     }

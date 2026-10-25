@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:mtbbs/api/helpers.dart';
 import 'package:mtbbs/api/home/follow/http.dart' as http;
 import 'package:mtbbs/api/home/follow/parse.dart' as parse;
+import 'package:mtbbs/core/parser/xml_helper.dart';
 
 /// 关注/粉丝列表 API 导出
 ///
@@ -15,4 +16,44 @@ Future<Map<String, dynamic>> getFollowList(
 }) async {
   final resp = await http.getFollowList(dio, type: type, uid: uid, page: page);
   return parseWithLog(resp, parse.parseResponse);
+}
+
+/// 关注（收听）
+///
+/// [hashUid] / [formhash] 来自 `parseFollowStatus` 的解析结果。
+Future<Map<String, dynamic>> followUser(
+  Dio dio, {
+  required String hashUid,
+  required String formhash,
+}) async {
+  final resp = await http.submitFollow(
+    dio,
+    hashUid: hashUid,
+    formhash: formhash,
+  );
+  final r = parseSubmitResponse(safeDecode(resp));
+  return {'success': r.success, 'message': r.message};
+}
+
+/// 取消关注（取消收听）
+Future<Map<String, dynamic>> unfollowUser(
+  Dio dio, {
+  required String hashUid,
+  required String formhash,
+}) async {
+  final resp = await http.submitUnfollow(
+    dio,
+    hashUid: hashUid,
+    formhash: formhash,
+  );
+  final r = parseSubmitResponse(safeDecode(resp));
+  return {'success': r.success, 'message': r.message};
+}
+
+/// 查询关注状态与操作令牌（拉取他人主页 PC 页面并解析）
+///
+/// 返回：`isFollowing`（true/false/null=未渲染按钮）、`followHash`、`formhash`。
+Future<Map<String, dynamic>> getFollowStatus(Dio dio, String uid) async {
+  final resp = await http.getFollowStatusPage(dio, uid);
+  return parseWithLog(resp, parse.parseFollowStatus);
 }

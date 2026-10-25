@@ -10,7 +10,9 @@ import 'package:mtbbs/core/app/site_scope.dart';
 import 'package:mtbbs/core/settings/settings_repository.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/string_utils.dart';
+import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/api/home/space/export.dart' as space_api;
+import 'package:mtbbs/api/home/follow/export.dart' as follow_api;
 import 'package:mtbbs/auth/providers/auth_provider.dart';
 import 'package:mtbbs/models/user_profile.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
@@ -55,6 +57,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   /// 「生成图片」预览模式：正文区切换为预览（复用本页区块，见 _contentSections）
   bool _sharing = false;
+
+  // ==================== 关注态（他人主页） ====================
+  // 数据来自 PC 模板 profile 页（follow/parse.dart 的 parseFollowStatus）。
+  bool? _isFollowing; // null = 未登录/未渲染按钮（不显示关注项）
+  String _followHash = '';
+  String _followFormhash = '';
+  bool _followLoading = false;
 
   @override
   void didChangeDependencies() {
@@ -126,11 +135,78 @@ class _UserProfilePageState extends State<UserProfilePage> {
           ),
         );
       }
+      // 加载成功后拉取关注态（他人主页；仅登录时，取 PC 模板按钮状态与令牌）
+      final auth = context.read<AuthProvider>();
+      if (auth.isLoggedIn && widget.uid != 'self' && auth.uid != widget.uid) {
+        _loadFollowStatus();
+      }
     } catch (e) {
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  /// 拉取他人主页关注态与操作令牌（失败静默，仅不显示关注项）
+  Future<void> _loadFollowStatus() async {
+    try {
+      final data = await follow_api.getFollowStatus(
+        _dio,
+        widget.uid,
+      );
+      if (!mounted) return;
+      if (data['success'] == true) {
+        setState(() {
+          _isFollowing = data['isFollowing'] as bool?;
+          _followHash = (data['followHash'] as String?) ?? '';
+          _followFormhash = (data['formhash'] as String?) ?? '';
+        });
+      }
+    } catch (e) {
+      AppLogger.w('USER', '关注态加载失败: $e');
+    }
+  }
+
+  /// 关注/取消关注（乐观更新，失败回滚）
+  Future<void> _toggleFollow() async {
+    if (_followLoading) return;
+    if (_followHash.isEmpty || _followFormhash.isEmpty) {
+      showToast('关注信息未就绪，请稍候或刷新');
+      return;
+    }
+    final wasFollowing = _isFollowing == true;
+    setState(() {
+      _followLoading = true;
+      _isFollowing = !wasFollowing; // 乐观更新
+    });
+    try {
+      final data = wasFollowing
+          ? await follow_api.unfollowUser(
+              _dio,
+              hashUid: _followHash,
+              formhash: _followFormhash,
+            )
+          : await follow_api.followUser(
+              _dio,
+              hashUid: _followHash,
+              formhash: _followFormhash,
+            );
+      if (!mounted) return;
+      if (data['success'] != true) {
+        // 服务器拒绝 → 回滚
+        setState(() => _isFollowing = wasFollowing);
+        showToast('操作失败: ${data['message'] ?? data['error'] ?? '未知错误'}');
+      } else {
+        showToast(wasFollowing ? '已取消收听' : '已收听');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isFollowing = wasFollowing);
+      showToast('网络错误，请重试');
+      AppLogger.e('USER', '关注操作失败: $e');
+    } finally {
+      if (mounted) setState(() => _followLoading = false);
     }
   }
 

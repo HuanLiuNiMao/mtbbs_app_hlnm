@@ -12,6 +12,8 @@ import 'package:mtbbs/auth/providers/auth_provider.dart';
 import 'package:mtbbs/models/browse_record.dart';
 import 'package:mtbbs/core/app/emoji_loader.dart';
 import 'package:mtbbs/core/app/site_store.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
+import 'package:mtbbs/providers/settings_provider.dart';
 
 /// 我的帖子/回复页面
 class MyThreadPage extends StatefulWidget {
@@ -109,12 +111,26 @@ class _MyThreadPageState extends State<MyThreadPage> {
           ),
         ],
       ),
-      body: ThreadGrid(
-        controller: _controller,
-        visible: true,
-        expandedReplies: _expandedReplies,
-        loadingReplies: _loadingReplies,
-        errorReplies: _errorReplies,
+      body: Builder(builder: (context) {
+        final scopeCfg = context
+            .read<SettingsProvider>()
+            .threadScopeFilter(kThreadScopeUser);
+        return ThreadGrid(
+          controller: _controller,
+          visible: true,
+          // 功能①：他人主页主题列表的板块 + 关键词过滤（本地投影，各列表点独立配置）
+          itemFilter: (items) {
+            final s = context.read<SettingsProvider>();
+            return filterThreadItemsForScope(
+              items,
+              s.threadScopeFilter(kThreadScopeUser),
+            );
+          },
+          // 屏蔽补页：该列表点启用屏蔽时，整页被屏蔽空自动向后扩窗拼接
+          autoExtendOnDeficit: scopeCfg.enabled && !scopeCfg.isNoop,
+          expandedReplies: _expandedReplies,
+          loadingReplies: _loadingReplies,
+          errorReplies: _errorReplies,
         onViewReplies: widget.type == 'reply'
             ? (item) {
                 final tid = item.threadId;
@@ -165,6 +181,18 @@ class _MyThreadPageState extends State<MyThreadPage> {
                           posts.first.uid == item.uid.toString()) {
                         posts = posts.sublist(1);
                       }
+                      // 功能②：评论屏蔽（命中即隐藏整层楼；回复别人豁免）
+                      // 注意：必须在楼主帖去重之后过滤，
+                      // 否则首条被过滤后 sublist(1) 会误删真实回复
+                      // （authorid 筛选下 isOp 全为 false，isOp 豁免
+                      // 在此不生效，楼主帖已由上方 uid 对比去重兜底）
+                      final settings = context.read<SettingsProvider>();
+                      posts = filterPostItems(
+                        posts,
+                        settings.commentFilterKeywords,
+                        enabled: settings.commentBlockEnabled,
+                      );
+                      if (!mounted) return;
                       setState(() {
                         _loadingReplies.remove(tid);
                         _errorReplies.remove(tid);
@@ -180,7 +208,8 @@ class _MyThreadPageState extends State<MyThreadPage> {
                     });
               }
             : null,
-      ),
+        );
+      }),
     );
   }
 }

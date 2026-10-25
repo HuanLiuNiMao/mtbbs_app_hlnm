@@ -194,6 +194,16 @@ extension on _UserProfilePageState {
             );
           },
         ),
+      // 关注/取消收听（仅他人视角且已解析到关注态时显示；
+      // 数据来自 PC 模板 profile 页，见 _loadFollowStatus）
+      if (!isSelf && _uidNum != null && _isFollowing != null)
+        _actionItem(
+          icon: _isFollowing == true
+              ? Icons.person_remove_outlined
+              : Icons.person_add_alt_1_outlined,
+          label: _followLoading ? '处理中…' : (_isFollowing == true ? '已收听' : '收听TA'),
+          onTap: _followLoading ? null : _toggleFollow,
+        ),
     ];
   }
 

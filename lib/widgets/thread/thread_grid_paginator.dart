@@ -5,7 +5,11 @@ extension on _ThreadGridState {
   // ==================== 悬浮翻页按钮 ====================
 
   Widget _buildFloatingPaginator(ThreadListController ctrl, ColorScheme cs) {
-    final pageLabel = '第 ${ctrl.page} 页';
+    // 扩窗模式下 windowEnd 可能 > page（多页内容已拼接展示）；
+    // 未扩窗时 windowEnd == page，退化为单页显示。
+    final label = ctrl.windowEnd > ctrl.page
+        ? '第 ${ctrl.page}-${ctrl.windowEnd} 页'
+        : '第 ${ctrl.page} 页';
 
     return Material(
       elevation: 4,
@@ -44,7 +48,7 @@ extension on _ThreadGridState {
                         ),
                       )
                     : Text(
-                        pageLabel,
+                        label,
                         style: TextStyle(
                           fontSize: 12,
                           color: cs.onSurfaceVariant,
@@ -58,7 +62,9 @@ extension on _ThreadGridState {
               icon: Icons.chevron_right,
               enabled: ctrl.hasNext,
               onTap: () {
-                ctrl.nextPage();
+                // 窗口模式翻页：扩窗后跳过整窗（windowEnd+1），
+                // 避免把已拼接展示的页再翻一遍；未扩窗时 windowEnd==page，语义同 nextPage。
+                ctrl.nextWindow();
                 _handlePageChange();
               },
               cs: cs,

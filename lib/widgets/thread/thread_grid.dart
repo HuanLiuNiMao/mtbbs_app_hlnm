@@ -34,6 +34,16 @@ class ThreadGrid extends StatefulWidget {
 
   /// 关键词高亮：非空时透传给 [ThreadCard]（搜索场景使用）
   final String highlight;
+  /// 列表投影过滤器（功能①：板块/关键词过滤，本地隐藏，不改数据源）
+  ///
+  /// 为 null 时不过滤；过滤结果只用于渲染，`_onStateChanged` 仍以
+  /// controller 原始列表做 identical 判等。
+  final List<ThreadItem> Function(List<ThreadItem>)? itemFilter;
+  /// 屏蔽补页（功能①扩展）：过滤后可见条数不足一页基准时自动向后扩窗。
+  ///
+  /// 仅在该列表点实际启用屏蔽时置 true（由页面按配置计算传入）；
+  /// 未启用过滤的页面保持 false，避免对天然短页发起无谓请求。
+  final bool autoExtendOnDeficit;
 
   /// 供"重复点击 Tab 回到顶部"取用：列表控制器 → 该列表的滚动控制器
   /// （滚动控制器在 State 里是私有的，外面够不着，只能这样暴露）
@@ -51,6 +61,8 @@ class ThreadGrid extends StatefulWidget {
     this.emptyText = '暂无帖子',
     this.emptyIcon = Icons.inbox_outlined,
     this.highlight = '',
+    this.itemFilter,
+    this.autoExtendOnDeficit = false,
   });
 
   @override
@@ -64,6 +76,8 @@ class _ThreadGridState extends State<ThreadGrid>
   List<ThreadItem>? _lastItems;
   int _lastPage = 1;
   LoadState _lastState = LoadState.initial;
+  /// 缺额扩窗防抖标记（一次 build 周期最多发一次扩窗请求）
+  bool _extendScheduled = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -125,8 +139,7 @@ class _ThreadGridState extends State<ThreadGrid>
     _lastState = ctrl.state;
     setState(() {});
   }
-
-  /// 页面切换时滚动到顶部
+/// 页面切换时滚动到顶部
   void _handlePageChange() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
@@ -136,6 +149,27 @@ class _ThreadGridState extends State<ThreadGrid>
       );
     }
   }
+
+  /// 屏蔽补页缺额检测（功能①扩展）：过滤后可见条数不足一页基准时，
+  /// 自动向后扩窗拉页拼接——避免「翻好几页全是被屏蔽的帖子」。
+  ///
+  /// [visibleCount] 为过滤后的可见条数；在 build 流程末尾调用。
+  /// 仅在 [ThreadGrid.autoExtendOnDeficit] 开启时生效。
+  void _maybeExtendWindow(int visibleCount, ThreadListController ctrl) {
+    if (!widget.autoExtendOnDeficit) return;
+    if (_extendScheduled) return;
+    if (!ctrl.canExtendWindow) return;
+    if (visibleCount >= ctrl.pageSizeHint) return;
+    _extendScheduled = true;
+    Future<void>(() async {
+      try {
+        await ctrl.extendWindow();
+      } finally {
+        _extendScheduled = false;
+      }
+    });
+  }
+
 
   @override
   Widget build(BuildContext context) {

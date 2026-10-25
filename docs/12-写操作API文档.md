@@ -123,3 +123,21 @@
 | `lib/api/forum/post/export.dart` | submitNewPost / submitReply 汇总入口（parseSubmitResponse 解析） |
 | `lib/pages/editor/editor_submit.dart` | submitEdit（编辑器内联实现，探针 post.edit 复用其逻辑） |
 | `tool/api_scenarios.dart` | post.new / post.reply / post.edit 探针场景 |
+
+## 8. 收听 / 取消收听 — uid + hash
+
+| 项 | 值 |
+|---|---|
+| 加载页 | `GET /home.php?mod=space&uid={uid}&do=profile`（同时取 `formhash` 与关注按钮的 `hash`） |
+| 收听端点 | `POST /home.php?mod=spacecp&ac=follow&op=add&hash={hash}&inajax=1` |
+| 取消端点 | `POST /home.php?mod=spacecp&ac=follow&op=del&hash={hash}&inajax=1` |
+| 必填参数 | `formhash`；op=add 时额外 `followsubmit=true` |
+| 代码 | `lib/api/home/follow/{http,parse,export}.dart`（`submitFollow` / `submitUnfollow` / `getFollowStatusPage`；导出层为 `followUser` / `unfollowUser` / `getFollowStatus`） |
+| UI 落点 | `lib/pages/user/user_profile_page.dart`（`_loadFollowStatus` / `_toggleFollow`，乐观更新 + 失败回滚）+ `user_profile_sections_extra.dart`（头部操作区关注项） |
+
+要点：
+
+- **按钮状态判定**：个人主页 `#ct` 内关注按钮带 `flw_btn_unfo`（已收听）或 `flw_btn_fo`（未收听）类名，`parseFollowStatus` 据此返回 `isFollowing`；按钮 `href` 中 `hash={十六进制串}` 是写操作目标参数（Discuz 关注防伪串，非 formhash），用 `RegExp(r'hash=([0-9a-f]+)')` 提取。
+- **WAF 前置要求（与留言板同约定）**：站点为阿里云 ESA WAF 前置，写 POST 必须同时满足 PC UA（`Site.uaPc`）+ `Content-Type: application/x-www-form-urlencoded` + `X-Requested-With: XMLHttpRequest` + Referer，否则被 WAF 拦成挑战页（见 docs/21、`home/wall/http.dart` 注释）。
+- **响应解析**：inajax XML，成功为 `succeedhandle_…`，可直接交 `parseSubmitResponse`。
+- **失败兜底**：`isFollowing == null`（未登录或按钮未渲染，如查看自己/游客）时 UI 不显示关注项；收听态加载失败静默降级（`AppLogger.w`），不阻断主页加载。

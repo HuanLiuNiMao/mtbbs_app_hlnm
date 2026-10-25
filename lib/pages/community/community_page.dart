@@ -8,6 +8,8 @@ import 'package:mtbbs/controllers/thread_list_controller.dart';
 import 'package:mtbbs/widgets/thread/thread_grid.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
 import 'package:mtbbs/widgets/layout/tab_page_layout.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
+import 'package:mtbbs/providers/settings_provider.dart';
 
 /// 版块页面
 ///
@@ -183,9 +185,26 @@ class _CommunityPageState extends State<CommunityPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => ctrl.loadInitial());
     }
     if (ctrl == null) {
-      return const Center(child: Text('版块不存在'));
+return const Center(child: Text('版块不存在'));
     }
-    return ThreadGrid(controller: ctrl, visible: true);
+    // 功能①：帖子列表过滤（各列表点独立配置，本地投影）
+    // 闭包内实时读 SettingsProvider：设置变化 → 页面重建 → 过滤器即时生效
+    final scopeCfg = context
+        .read<SettingsProvider>()
+        .threadScopeFilter(kThreadScopeCommunity);
+    return ThreadGrid(
+      controller: ctrl,
+      visible: true,
+      itemFilter: (items) {
+        final s = context.read<SettingsProvider>();
+        return filterThreadItemsForScope(
+          items,
+          s.threadScopeFilter(kThreadScopeCommunity),
+        );
+      },
+      // 屏蔽补页：该列表点启用屏蔽时，整页被屏蔽空自动向后扩窗拼接
+      autoExtendOnDeficit: scopeCfg.enabled && !scopeCfg.isNoop,
+    );
   }
 
   // ==================== 标签页模式 ====================
@@ -203,7 +222,23 @@ class _CommunityPageState extends State<CommunityPage> {
       buildPage: (key, _, isActive) {
         final ctrl = _ctrlMap[key];
         if (ctrl == null) return const SizedBox.shrink();
-        return ThreadGrid(controller: ctrl, visible: isActive);
+        // 功能①：帖子列表过滤（各列表点独立配置，本地投影）
+        final scopeCfg = context
+            .read<SettingsProvider>()
+            .threadScopeFilter(kThreadScopeCommunity);
+        return ThreadGrid(
+          controller: ctrl,
+          visible: isActive,
+          itemFilter: (items) {
+            final s = context.read<SettingsProvider>();
+            return filterThreadItemsForScope(
+              items,
+              s.threadScopeFilter(kThreadScopeCommunity),
+            );
+          },
+          // 屏蔽补页：该列表点启用屏蔽时，整页被屏蔽空自动向后扩窗拼接
+          autoExtendOnDeficit: scopeCfg.enabled && !scopeCfg.isNoop,
+        );
       },
     );
   }

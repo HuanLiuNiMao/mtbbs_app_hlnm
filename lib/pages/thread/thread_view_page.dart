@@ -25,6 +25,7 @@ import 'package:mtbbs/api/forum/viewthread/action/export.dart' as action_api;
 import 'package:mtbbs/api/forum/viewthread/viewpid/export.dart' as viewpid_api;
 import 'package:mtbbs/api/home/favorite/export.dart' as favorite_api;
 import 'package:mtbbs/core/utils/logger.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
 import 'package:mtbbs/core/parser/xml_helper.dart';
 import 'package:mtbbs/models/thread_detail.dart';
 import 'package:mtbbs/models/browse_record.dart';
@@ -137,6 +138,13 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
   int _currentPage = 1;
   int _totalPages = 1;
   bool _pageLoading = false;
+  /// 屏蔽补页窗口末端（功能②扩展）：
+  /// 整页评论被屏蔽空时自动向后拉页拼进展示窗口，区间 [_currentPage, _windowEnd]。
+  int _windowEnd = 1;
+  /// 一页评论的基准条数（扩窗凑可见量的目标线，按实际页校准）
+  int _commentPageSizeHint = 20;
+  /// 扩窗页数上限（窗口最大宽度，防极端拉爆）
+  static const int _commentMaxWindowWidth = 5;
 
   // ---- 滚动 ----
   final ScrollController _scrollController = ScrollController();
