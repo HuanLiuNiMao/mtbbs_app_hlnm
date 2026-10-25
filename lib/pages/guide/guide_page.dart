@@ -14,6 +14,7 @@ import 'package:mtbbs/auth/widgets/login_sheet.dart';
 import 'package:mtbbs/widgets/dialog/managed_list_dialog.dart';
 import 'package:mtbbs/controllers/thread_list_controller.dart';
 import 'package:mtbbs/widgets/thread/thread_grid.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
 
 /// 导读首页
 ///
@@ -252,9 +253,23 @@ class _GuidePageState extends State<GuidePage> {
                           if (ctrl == null) return const SizedBox.shrink();
                           if (v == 'my' && !auth.isLoggedIn)
                             return _buildLoginPrompt();
+                          // 功能①：帖子列表过滤（各列表点独立配置，本地投影）
+                          final scopeCfg = context
+                              .read<SettingsProvider>()
+                              .threadScopeFilter(kThreadScopeGuide);
                           return ThreadGrid(
                             controller: ctrl,
                             visible: v == _focusView,
+                            itemFilter: (items) {
+                              final s = context.read<SettingsProvider>();
+                              return filterThreadItemsForScope(
+                                items,
+                                s.threadScopeFilter(kThreadScopeGuide),
+                              );
+                            },
+                            // 屏蔽补页：该列表点启用屏蔽时，整页被屏蔽空自动向后扩窗拼接
+                            autoExtendOnDeficit:
+                                scopeCfg.enabled && !scopeCfg.isNoop,
                           );
                         }).toList(),
                       ),

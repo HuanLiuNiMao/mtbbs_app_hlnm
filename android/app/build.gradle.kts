@@ -114,9 +114,7 @@ android {
                 manifestPlaceholders.put("appName", "MT论坛 beta")
                 signingConfig = signingConfigs.getByName("debug")
             } else {
-                // 有正式签名用正式签名；否则用 debug 签名（本地自测/CI 未配 Secrets 均不报错）
-                signingConfig = if (keystoreOk) signingConfigs.getByName("release")
-                else signingConfigs.getByName("debug")
+                // 不签名构建：不设置 signingConfig，产出 app-release-unsigned.apk
             }
         }
     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mtbbs/pages/settings/models/content_filter_settings.dart';
 import 'package:mtbbs/pages/settings/models/content_settings.dart';
 import 'package:mtbbs/pages/settings/models/data_settings.dart';
 import 'package:mtbbs/pages/settings/models/display_settings.dart';
@@ -60,6 +61,11 @@ final settingsGroups = <SettingsGroupDef>[
     title: '页面接管',
     icon: Icons.pages,
     models: (_) => pageGateSettings(),
+  ),
+  SettingsGroupDef(
+    title: '内容过滤',
+    icon: Icons.filter_alt_outlined,
+    models: (_) => contentFilterSettings(),
   ),
   SettingsGroupDef(
     title: 'MCP 服务',

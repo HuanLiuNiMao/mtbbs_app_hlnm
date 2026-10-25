@@ -20,6 +20,7 @@ import 'package:mtbbs/api/forum/viewthread/viewpid/export.dart' as viewpid_api;
 import 'package:mtbbs/api/home/favorite/export.dart' as favorite_api;
 import 'package:mtbbs/services/api_service.dart';
 import 'package:mtbbs/core/utils/logger.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
 import 'package:mtbbs/core/parser/xml_helper.dart';
 import 'package:mtbbs/models/thread_detail.dart';
 import 'package:mtbbs/models/browse_record.dart';
@@ -91,6 +92,13 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
   int _currentPage = 1;
   int _totalPages = 1;
   bool _pageLoading = false;
+  /// 屏蔽补页窗口末端（功能②扩展）：
+  /// 整页评论被屏蔽空时自动向后拉页拼进展示窗口，区间 [_currentPage, _windowEnd]。
+  int _windowEnd = 1;
+  /// 一页评论的基准条数（扩窗凑可见量的目标线，按实际页校准）
+  int _commentPageSizeHint = 20;
+  /// 扩窗页数上限（窗口最大宽度，防极端拉爆）
+  static const int _commentMaxWindowWidth = 5;
 
   // ---- 滚动 ----
   final ScrollController _scrollController = ScrollController();
@@ -249,9 +257,30 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
     }
   }
 
-  Future<void> _loadCommentPage(int page, {bool force = false}) async {
+  /// 屏蔽补页缺额检测（功能②扩展）：过滤后可见评论数不足一页基准时，
+  /// 自动向后扩窗拉页拼接——避免「翻好几页全是被屏蔽的楼层」。
+  ///
+  /// 由布局层（thread_view_layout）在过滤后调用；串行扩窗，一次一页。
+  Future<void> _maybeExtendCommentWindow(int visibleCount) async {
+    if (_pageLoading) return;
+    if (visibleCount >= _commentPageSizeHint) return;
+    final width = _windowEnd - _currentPage + 1;
+    if (width >= _commentMaxWindowWidth) return;
+    if (_totalPages > 0 && _windowEnd >= _totalPages) return;
+    await _loadCommentPage(
+      _windowEnd + 1,
+      extend: true,
+    );
+  }
+
+  Future<void> _loadCommentPage(
+    int page, {
+    bool force = false,
+    bool extend = false,
+  }) async {
     if (_pageLoading) return;
     if (!force && _commentPages.containsKey(page)) return;
+    if (extend && page > _totalPages) return;
     setState(() {
       _pageLoading = true;
     });
@@ -269,12 +298,39 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
       final data = ThreadViewData.fromMap(raw, widget.tid);
       if (!mounted) return;
       final actualPage = data.currentPage;
-      _commentPages[actualPage] = List<PostItem>.from(data.posts);
-      _currentPage = actualPage;
-      AppLogger.i(
-        'PAGE',
-        'loaded comment page $actualPage (${data.posts.length} posts)',
-      );
+      if (extend && actualPage > _currentPage) {
+        // 屏蔽补页扩窗模式：结果按 pid 去重后拼进当前页展示窗口，
+        // 不切换 _currentPage（页码锚点不动，窗口向右延伸）
+        final target = _commentPages[_currentPage] ?? <PostItem>[];
+        final seen = target.map((p) => p.pid).toSet();
+        final merged = List<PostItem>.from(target);
+        var added = 0;
+        for (final p in data.posts) {
+          if (seen.add(p.pid)) {
+            merged.add(p);
+            added++;
+          }
+        }
+        _commentPages[_currentPage] = merged;
+        if (actualPage > _windowEnd) _windowEnd = actualPage;
+        AppLogger.i(
+          'PAGE',
+          'extendWindow: +$added posts from page $actualPage '
+          '(window $_currentPage-$_windowEnd, total=${merged.length})',
+        );
+      } else {
+        _commentPages[actualPage] = List<PostItem>.from(data.posts);
+        _currentPage = actualPage;
+        if (actualPage > _windowEnd) _windowEnd = actualPage;
+        // 校准一页基准条数（扩窗凑可见量的目标线）
+        if (data.posts.length > _commentPageSizeHint) {
+          _commentPageSizeHint = data.posts.length;
+        }
+        AppLogger.i(
+          'PAGE',
+          'loaded comment page $actualPage (${data.posts.length} posts)',
+        );
+      }
     } catch (e) {
       AppLogger.w('PAGE', 'load comment page $page error: $e');
     }
@@ -288,6 +344,8 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
     if (page < 1 || page > _totalPages || page == _currentPage) return;
     setState(() {
       _currentPage = page;
+      // 跳页 = 窗口重置为该单页（屏蔽补页从头开始）
+      _windowEnd = page;
     });
     _recordThreadHistory();
     if (!_commentPages.containsKey(page)) _loadCommentPage(page);
@@ -327,6 +385,8 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
         _totalPages = d.totalPages;
         _data = d;
         _liked = d.mainPost?.isLiked ?? false;
+        // 刷新第 1 页 = 窗口重置为单页（第 1 页）
+        if (_currentPage == 1) _windowEnd = 1;
       });
       AppLogger.i('PAGE', 'refresh page1 ok (${d.posts.length} posts)');
     } catch (e) {

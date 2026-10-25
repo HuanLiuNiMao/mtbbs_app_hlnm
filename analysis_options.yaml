@@ -33,6 +33,10 @@ analyzer:
     deprecated_member_use: ignore
     # 异步 context 使用警告
     use_build_context_synchronously: ignore
+  exclude:
+    - build/**
+    - android/**
+    - windows/**
 
 linter:
   rules:

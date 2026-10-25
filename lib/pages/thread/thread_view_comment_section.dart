@@ -135,8 +135,13 @@ class CommentSection extends StatelessWidget {
     required VoidCallback? onNext,
     required VoidCallback? onPageTap,
     required VoidCallback? onRefresh,
+    int? windowEnd,
   }) {
     final cs = Theme.of(context).colorScheme;
+    // 扩窗模式：页码显示区间（如 1-3 / 20），未扩窗时 windowEnd == currentPage 退化单页
+    final pageLabel = (windowEnd != null && windowEnd > currentPage)
+        ? '$currentPage-$windowEnd / $totalPages'
+        : '$currentPage / $totalPages';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       color: cs.surface,
@@ -187,7 +192,7 @@ class CommentSection extends StatelessWidget {
                       ),
                     )
                   : Text(
-                      '$currentPage / $totalPages',
+                      pageLabel,
                       style: TextStyle(fontSize: 12, color: cs.onSurface),
                     ),
             ),

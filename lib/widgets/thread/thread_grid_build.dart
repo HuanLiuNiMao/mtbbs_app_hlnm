@@ -28,8 +28,11 @@ extension on _ThreadGridState {
         (ctrl.state == LoadState.loading && ctrl.items.isEmpty)) {
       return _buildSkeleton();
     }
-
-    if (ctrl.items.isEmpty) {
+    // 功能①扩展：过滤提前计算（空态判定 + 缺额扩窗检测 + 渲染共用一份）
+    final visibleItems = widget.itemFilter?.call(ctrl.items) ?? ctrl.items;
+    // 功能①扩展：整页被屏蔽空 → 仍触发缺额扩窗，自动拉后续页补可见量
+    _maybeExtendWindow(visibleItems.length, ctrl);
+    if (visibleItems.isEmpty) {
       final cs = Theme.of(context).colorScheme;
       return Stack(
         children: [
@@ -99,9 +102,11 @@ extension on _ThreadGridState {
   // ==================== 单列列表 ====================
 
   Widget _buildListSliver(ThreadListController ctrl) {
+    // 功能①：本地投影过滤（不改 controller 数据源）
+    final items = widget.itemFilter?.call(ctrl.items) ?? ctrl.items;
     return SliverList(
       delegate: SliverChildBuilderDelegate((context, index) {
-        final item = ctrl.items[index];
+        final item = items[index];
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: ThreadCard(
@@ -120,7 +125,7 @@ extension on _ThreadGridState {
             replyError: widget.errorReplies[item.threadId],
           ),
         );
-      }, childCount: ctrl.items.length),
+      }, childCount: items.length),
     );
   }
 
@@ -131,6 +136,8 @@ extension on _ThreadGridState {
     int crossAxisCount,
     double spacing,
   ) {
+    // 功能①：本地投影过滤（不改 controller 数据源）
+    final items = widget.itemFilter?.call(ctrl.items) ?? ctrl.items;
     return SliverPadding(
       padding: EdgeInsets.all(spacing),
       sliver: SliverMasonryGrid.count(
@@ -138,7 +145,7 @@ extension on _ThreadGridState {
         mainAxisSpacing: spacing,
         crossAxisSpacing: spacing,
         itemBuilder: (context, index) {
-          final item = ctrl.items[index];
+          final item = items[index];
           return ThreadCard(
             item: item,
             highlight: widget.highlight,
@@ -154,7 +161,7 @@ extension on _ThreadGridState {
             replyError: widget.errorReplies[item.threadId],
           );
         },
-        childCount: ctrl.items.length,
+        childCount: items.length,
       ),
     );
   }
