@@ -54,10 +54,14 @@ abstract final class BuildConfig {
     defaultValue: '',
   );
 
-  /// 上游仓库地址（仅用于展示；fork 注入 `mtbbs.repo` 后 [repoUrl] 指向自己）。
-  static const String upstreamRepoUrl = 'https://github.com/qcxs/mtbbs_app';
+  /// 兜底仓库地址（构建未注入 `mtbbs.repo` 时用于展示）。
+  ///
+  /// 本 fork 的默认更新源与展示地址统一指向 [HuanLiuNiMao/mtbbs_app_hlnm]；
+  /// 上游作者仓库仅作为致谢名单条目保留（见 `assets/config/thanks.json`）。
+  static const String upstreamRepoUrl =
+      'https://github.com/HuanLiuNiMao/mtbbs_app_hlnm';
 
-  /// 应用内展示的仓库地址：优先构建注入的更新源，未注入时回落上游。
+  /// 应用内展示的仓库地址：优先构建注入的更新源，未注入时回落 [upstreamRepoUrl]。
   static String get repoUrl {
     final repo = updateRepo.trim();
     return repo.isEmpty ? upstreamRepoUrl : 'https://github.com/$repo';

@@ -149,10 +149,7 @@ class UpdateService {
       final releases = decoded
           .whereType<Map<String, dynamic>>()
           .where((e) => e['draft'] != true)
-          .where(
-            (e) =>
-                cfg.policy.includePrerelease || e['prerelease'] != true,
-          )
+          .where((e) => cfg.policy.includePrerelease || e['prerelease'] != true)
           .toList();
       if (releases.isEmpty) {
         return const UpdateCheckFailed('未找到发布记录');
@@ -200,17 +197,17 @@ class UpdateService {
   String? downloadUrlFor(ReleaseInfo info) {
     final cfg = config;
     if (cfg == null) return null;
-    return selectAsset(
-      info.assets,
-      cfg.rulesFor(currentPlatform),
-      _abiName(),
-    );
+    return selectAsset(info.assets, cfg.rulesFor(currentPlatform), _abiName());
   }
 
   /// 按规则从产物列表中选包（纯函数，便于单测）。
   ///
   /// 规则按顺序尝试；命中多个时，`preferAbi` 规则先按设备 ABI 精确匹配，
   /// 再回退 arm64-v8a，最后取第一个。
+  ///
+  /// 「同时发布签名 / 未签名」时同一 Release 里会有 `*_unsigned.apk`：
+  /// 未签名包无法直接安装，因此**始终优先选已签名产物**，只有在没有签名包
+  /// （或只发了未签名包）时才回退到 unsigned。
   static String? selectAsset(
     List<ReleaseAsset> assets,
     List<AssetRule> rules,
@@ -219,17 +216,24 @@ class UpdateService {
     for (final rule in rules) {
       final matched = assets.where((a) => rule.matches(a.name)).toList();
       if (matched.isEmpty) continue;
-      if (!rule.preferAbi) return matched.first.downloadUrl;
-      for (final a in matched) {
+      // 先剔除未签名产物（若全是 unsigned，则保留原集合作为兜底）
+      final signed = matched.where((a) => !isUnsignedAsset(a.name)).toList();
+      final pool = signed.isNotEmpty ? signed : matched;
+      if (!rule.preferAbi) return pool.first.downloadUrl;
+      for (final a in pool) {
         if (a.name.contains(abi)) return a.downloadUrl;
       }
-      for (final a in matched) {
+      for (final a in pool) {
         if (a.name.contains('arm64-v8a')) return a.downloadUrl;
       }
-      return matched.first.downloadUrl;
+      return pool.first.downloadUrl;
     }
     return null;
   }
+
+  /// 产物名是否标记为「未签名」（release.yml 的 both 模式会加 `_unsigned` 后缀）
+  static bool isUnsignedAsset(String name) =>
+      name.contains('_unsigned') || name.contains('-unsigned');
 
   ReleaseInfo _parseRelease(
     Map<String, dynamic> json,

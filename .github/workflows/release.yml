@@ -26,6 +26,15 @@ on:
         required: false
         default: true
         type: boolean
+      sign_mode:
+        description: 'Android 签名方式：signed（仅签名）/ unsigned（仅未签名）/ both（两者同发，默认）'
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - signed
+          - unsigned
 
 jobs:
   android:
@@ -101,20 +110,61 @@ jobs:
         env:
           # beta 形态：gradle 按 dart-define 切成 .beta 独立应用（独立 appId/应用名/签名）
           BETA_FLAG: ${{ env.MTBBS_BETA == 'true' && '--dart-define=BETA=true' || '' }}
+          # 签名三选项（sign_mode 输入）：signed / unsigned / both（默认）
+          SIGN_MODE: ${{ github.event.inputs.sign_mode || 'both' }}
+        shell: bash
         run: |
-          flutter build apk --release --split-per-abi \
-            --dart-define-from-file=mtbbs_release.json \
-            --build-name=${{ env.MTBBS_VERSION_NAME }} \
-            --build-number=${{ env.MTBBS_VERSION_CODE }} \
-            $BETA_FLAG
+          set -euo pipefail
+          build_once() {
+            local unsigned_flag="$1"
+            flutter build apk --release --split-per-abi \
+              --dart-define-from-file=mtbbs_release.json \
+              --build-name=${{ env.MTBBS_VERSION_NAME }} \
+              --build-number=${{ env.MTBBS_VERSION_CODE }} \
+              $BETA_FLAG $unsigned_flag
+          }
+          if [ "$SIGN_MODE" = "unsigned" ]; then
+            build_once "--dart-define=UNSIGNED=true"
+          elif [ "$SIGN_MODE" = "signed" ]; then
+            build_once ""
+          else
+            # both：先出签名包并挪走，再出未签名包，避免同名产物互相覆盖
+            build_once ""
+            mkdir -p build/signed
+            for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+              [ -e "$f" ] || continue
+              mv "$f" "build/signed/$(basename "$f")"
+            done
+            build_once "--dart-define=UNSIGNED=true"
+            mkdir -p build/unsigned
+            for f in build/app/outputs/flutter-apk/app-*-release.apk; do
+              [ -e "$f" ] || continue
+              mv "$f" "build/unsigned/$(basename "$f")"
+            done
+            for f in build/signed/app-*-release.apk; do
+              [ -e "$f" ] || continue
+              mv "$f" "build/app/outputs/flutter-apk/$(basename "$f")"
+            done
+          fi
 
       - name: 重命名
         shell: bash
         run: |
+          set -euo pipefail
+          # 有签名产物
           for file in build/app/outputs/flutter-apk/app-*-release.apk; do
+            [ -e "$file" ] || continue
             abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
             mv "$file" "MTBBS_android_${{ env.MTBBS_VERSION }}_${abi}.apk"
           done
+          # 未签名产物：加 _unsigned 后缀，与签名包区分（both 模式下两者都在）
+          if [ -d build/unsigned ]; then
+            for file in build/unsigned/app-*-release.apk; do
+              [ -e "$file" ] || continue
+              abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
+              mv "$file" "MTBBS_android_${{ env.MTBBS_VERSION }}_${abi}_unsigned.apk"
+            done
+          fi
 
       - name: 输出产物摘要与 Hash（溯源）
         shell: pwsh

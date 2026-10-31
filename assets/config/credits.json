@@ -1,0 +1,193 @@
+{
+  "sections": [
+    {
+      "title": "项目与上游",
+      "entries": [
+        {
+          "name": "MTBBS 上游项目",
+          "desc": "本应用 fork 自该项目：Discuz 客户端骨架、API 层、页面结构与大量重构思路均源自此仓库",
+          "link": "https://github.com/qcxs/mtbbs_app",
+          "uid": "88062",
+          "site": "bbs.binmt.cc"
+        },
+        {
+          "name": "MTBBS 鸿蒙分支",
+          "desc": "鸿蒙（HarmonyOS）独立实现，与本仓库共用 Dart 业务层设计",
+          "link": "https://github.com/qcxs/mtbbs_app_ohos"
+        },
+        {
+          "name": "MTBBS 本仓库（fork）",
+          "desc": "内容过滤（帖子/评论屏蔽、按列表点过滤、屏蔽补页）等功能的维护仓库",
+          "link": "https://github.com/HuanLiuNiMao/mtbbs_app_hlnm",
+          "uid": "143407",
+          "site": "bbs.binmt.cc"
+        }
+      ]
+    },
+    {
+      "title": "语言与框架",
+      "entries": [
+        {
+          "name": "Dart",
+          "desc": "全部业务代码的语言；空安全、异步 Stream、extension 与 part 拆分均依赖其特性",
+          "link": "https://github.com/dart-lang/sdk"
+        },
+        {
+          "name": "Flutter",
+          "desc": "跨平台 UI 框架：同一套 Widget 树同时驱动 Android 与 Windows 构建",
+          "link": "https://github.com/flutter/flutter"
+        },
+        {
+          "name": "Material 3",
+          "desc": "配色与组件规范（ColorScheme、动态取色、深浅色主题）",
+          "link": "https://m3.material.io/"
+        }
+      ]
+    },
+    {
+      "title": "架构与状态",
+      "entries": [
+        {
+          "name": "分层架构",
+          "desc": "api（请求与解析）/ providers（状态）/ pages（页面）/ widgets（组件）/ core（基础设施）五层，禁止跨层反向依赖",
+          "link": "https://github.com/HuanLiuNiMao/mtbbs_app_hlnm"
+        },
+        {
+          "name": "provider",
+          "desc": "状态管理与依赖注入：SettingsProvider / AuthProvider 等以 ChangeNotifier 向上暴露",
+          "link": "https://github.com/rrousselGit/provider"
+        },
+        {
+          "name": "go_router",
+          "desc": "声明式路由：深链入站（论坛链接 / mtbbs:// 自定义 scheme）与页面跳转统一在此解析",
+          "link": "https://github.com/flutter/packages/tree/main/packages/go_router"
+        },
+        {
+          "name": "sembast",
+          "desc": "纯 Dart 文档型数据库：设置文档、站点配置、缓存索引与登录态全部落地于此",
+          "link": "https://github.com/tekartik/sembast.dart"
+        },
+        {
+          "name": "flex_seed_scheme",
+          "desc": "由单一色种推导整套 Material 3 配色的算法实现",
+          "link": "https://github.com/rydmike/flex_seed_scheme"
+        }
+      ]
+    },
+    {
+      "title": "网络与解析",
+      "entries": [
+        {
+          "name": "dio",
+          "desc": "HTTP 客户端：拦截器链承担登录态注入、人机验证（ACW 挑战）回流、重试与统一错误映射",
+          "link": "https://github.com/cfug/dio"
+        },
+        {
+          "name": "cookie_jar / dio_cookie_manager",
+          "desc": "按站点隔离的 Cookie 持久化：多账号、多站点会话互不串号",
+          "link": "https://github.com/flutterchina/cookie_jar"
+        },
+        {
+          "name": "html",
+          "desc": "HTML DOM 解析：Discuz 页面结构（帖子列表、楼层、个人空间）均在此层抽取",
+          "link": "https://github.com/dart-lang/html"
+        },
+        {
+          "name": "xml",
+          "desc": "XML 解析：站点 RSS / 部分接口与订阅源处理",
+          "link": "https://github.com/renggli/dart-xml"
+        },
+        {
+          "name": "charset",
+          "desc": "字符集探测与转码：兼容非 UTF-8 的旧版论坛页面",
+          "link": "https://pub.dev/packages/charset"
+        },
+        {
+          "name": "markdown",
+          "desc": "Markdown → BBCode 转换：编辑器「导入 Markdown」功能",
+          "link": "https://github.com/dart-lang/markdown"
+        }
+      ]
+    },
+    {
+      "title": "渲染与媒体",
+      "entries": [
+        {
+          "name": "flutter_widget_from_html_core",
+          "desc": "HTML → Widget 渲染：BBCode 转 HTML 后的富文本、表格、代码块与内嵌样式呈现",
+          "link": "https://github.com/daohoangson/flutter_widget_from_html"
+        },
+        {
+          "name": "highlight.dart",
+          "desc": "代码语法高亮（highlight / flutter_highlight / re_highlight 三包同源）",
+          "link": "https://github.com/git-touch/highlight.dart"
+        },
+        {
+          "name": "cached_network_image / flutter_cache_manager",
+          "desc": "图片缓存：头像、表情与帖内配图的磁盘缓存、TTL 策略与并发去重",
+          "link": "https://github.com/Baseflow/flutter_cached_network_image"
+        },
+        {
+          "name": "photo_view",
+          "desc": "图片手势缩放：帖内大图与表情查看器",
+          "link": "https://github.com/bluefireteam/photo_view"
+        },
+        {
+          "name": "image",
+          "desc": "纯 Dart 图像编解码：超长楼层分块截图后在 CPU 侧拼接为整张分享图",
+          "link": "https://github.com/brendan-duncan/image"
+        },
+        {
+          "name": "gal",
+          "desc": "保存分享图到系统相册 / 图片库，并处理各平台权限差异",
+          "link": "https://github.com/natsuk4ze/gal"
+        },
+        {
+          "name": "qr",
+          "desc": "分享图右下角二维码的编码与自绘模块（64px 小尺寸可用）",
+          "link": "https://github.com/kevmoo/qr.dart"
+        },
+        {
+          "name": "flutter_staggered_grid_view",
+          "desc": "瀑布流布局：板块与帖子列表的等高错落排布",
+          "link": "https://github.com/letsar/flutter_staggered_grid_view"
+        }
+      ]
+    },
+    {
+      "title": "平台与工具链",
+      "entries": [
+        {
+          "name": "flutter_inappwebview",
+          "desc": "内置浏览器：登录、网页验证与外部链接的站内打开",
+          "link": "https://github.com/pichillilorenzo/flutter_inappwebview"
+        },
+        {
+          "name": "QuickJS（flutter_qjs_next）",
+          "desc": "内嵌 JS 引擎：在本地执行站点人机验证挑战脚本，免弹 WebView 打断用户",
+          "link": "https://github.com/ftyszyx/flutter_qjs"
+        },
+        {
+          "name": "window_manager",
+          "desc": "桌面窗口管理：Windows 端尺寸、位置与最小化到托盘",
+          "link": "https://github.com/leanflutter/window_manager"
+        },
+        {
+          "name": "file_picker / url_launcher / path_provider",
+          "desc": "平台能力：文件选择与另存、外部应用唤起、应用目录定位（Flutter 官方插件集）",
+          "link": "https://github.com/flutter/packages"
+        },
+        {
+          "name": "mcp_dart",
+          "desc": "MCP 服务端实现：本机 Streamable HTTP 只读服务，供外部 AI 客户端接入",
+          "link": "https://pub.dev/packages/mcp_dart"
+        },
+        {
+          "name": "Android / Windows 原生层",
+          "desc": "Kotlin（MainActivity、MCP 前台服务、桌面快捷方式）与 C++ runner；构建经 Gradle + AGP 与 Inno Setup 打包",
+          "link": "https://github.com/HuanLiuNiMao/mtbbs_app_hlnm"
+        }
+      ]
+    }
+  ]
+}

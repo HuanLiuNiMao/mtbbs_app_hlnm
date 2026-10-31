@@ -19,6 +19,7 @@ import 'package:mtbbs/pages/settings/settings_page.dart';
 import 'package:mtbbs/pages/settings/settings_search_page.dart';
 import 'package:mtbbs/pages/settings/user_settings_page.dart';
 import 'package:mtbbs/pages/settings/about_page.dart';
+import 'package:mtbbs/pages/settings/credits_page.dart';
 import 'package:mtbbs/pages/settings/cache_settings_page.dart';
 import 'package:mtbbs/pages/settings/thread_cache_manage_page.dart';
 import 'package:mtbbs/pages/settings/editor_settings_page.dart';
@@ -172,6 +173,12 @@ GoRouter buildRouter({
           GoRoute(
             path: '/settings/about',
             pageBuilder: (_, __) => const NoTransitionPage(child: AboutPage()),
+          ),
+          // 致谢名单（二级页）：上游作者置顶 + 技术栈 + 底层开源依赖
+          GoRoute(
+            path: '/settings/credits',
+            pageBuilder: (_, __) =>
+                const NoTransitionPage(child: CreditsPage()),
           ),
           GoRoute(
             path: '/settings/editor',

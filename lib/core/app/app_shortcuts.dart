@@ -7,7 +7,7 @@ import 'package:mtbbs/core/utils/url_router.dart';
 /// Android 桌面「长按应用图标 → 快捷方式」（App Shortcuts）。
 ///
 /// 为什么用**动态注册**而不是静态 `res/xml/shortcuts.xml`：静态 `<intent>` 必须写死
-/// `targetPackage`，而本 App 有三个 applicationId（`com.github.qcxs.discuz` /
+/// `targetPackage`，而本 App 有三个 applicationId（`com.github.hlnm.mt.discuz` /
 /// `.debug` / `.beta`），静态 XML 只能命中其中一个。动态注册在运行时用
 /// `Intent(context, MainActivity::class.java)` 构造组件，**天然跟随当前变体的包名**。
 ///

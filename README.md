@@ -142,6 +142,7 @@ cd mtbbs_app
 
 ```markdown
 > 本分支源自 [qcxs/mtbbs_app](https://github.com/qcxs/mtbbs_app)，基于 GPLv3 许可。
+> 当前维护与发布仓库：[HuanLiuNiMao/mtbbs_app_hlnm](https://github.com/HuanLiuNiMao/mtbbs_app_hlnm)。
 ```
 
 ### 3. 配置站点信息
@@ -161,7 +162,7 @@ SiteConfig.sites[0] = SiteInfo(
 
 ### 4. 修改 Android 应用标识（推荐）
 
-`android/app/build.gradle.kts` 中 `applicationId = "com.github.qcxs.discuz"` 是原作者的应用 ID——**Fork 后务必改成你自己的**（如 `com.yourname.discuz`），否则与原版应用包名冲突：同一设备无法同时安装，也无法覆盖升级。debug / beta 变体分别带 `.debug` / `.beta` 后缀，可与正式版共存。
+`android/app/build.gradle.kts` 中 `applicationId = "com.github.hlnm.mt.discuz"` 是当前分支的应用 ID——**Fork 后务必改成你自己的**（如 `com.yourname.discuz`），否则与原版应用包名冲突：同一设备无法同时安装，也无法覆盖升级。debug / beta 变体分别带 `.debug` / `.beta` 后缀，可与正式版共存。
 
 ### 5. 使用 GitHub Actions 发布
 

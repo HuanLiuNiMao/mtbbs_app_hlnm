@@ -42,12 +42,22 @@ class AboutPage extends StatefulWidget {
   /// 宽屏设置页把本页放进右栏时传 false（外层已有自己的框架）
   final bool showAppBar;
 
-  /// 开发者 UID：作者在 MT 论坛与 52pojie 都有账号。
+  /// 原作者 UID（本应用上游维护者，MT 论坛 / 52pojie 都有账号）
   ///
   /// 当前浏览站点是 52pojie 时用它的 UID，其它情况（MT 论坛 / 未知站点）用 MT 的。
   static const String authorUidMt = '88062';
   static const String authorUid52 = '2284282';
   static const String site52Host = 'www.52pojie.cn';
+
+  /// 本 fork 维护者 UID（MT 论坛「环流泥猫」，即当前分发仓库的 owner）
+  static const String maintainerUid = '143407';
+
+  /// 本 fork 维护者的论坛昵称
+  static const String maintainerName = '环流泥猫';
+
+  /// 本 fork 维护者的个人空间
+  static const String maintainerSpaceUrl =
+      'https://bbs.binmt.cc/home.php?mod=space&uid=143407&do=profile&from=space';
 
   /// 开发者所属站点：跟随"当前站点是否为 52pojie"
   ///
@@ -93,8 +103,11 @@ class _AboutPageState extends State<AboutPage> {
   int _unlockTaps = 0;
   DateTime? _lastUnlockTapAt;
 
-  /// 开发者资料（首次从站点获取后持久化，之后读缓存）
+  /// 原作者资料（首次从站点获取后持久化，之后读缓存）
   UserProfile? _author;
+
+  /// 本 fork 维护者资料（同上，固定 MT 论坛 uid 143407）
+  UserProfile? _maintainer;
 
   /// 当前 [_author] 对应的站点（切换站点后需重新加载，避免显示别的站的资料）
   String? _authorLoadedHost;
@@ -134,21 +147,38 @@ class _AboutPageState extends State<AboutPage> {
     final host = AboutPage.authorSiteHost;
     final uid = AboutPage.authorUid;
     _authorLoadedHost = host;
+    _author = await _loadProfile(host, uid, 'about_author');
+    // 维护者固定挂在 MT 论坛（与当前站点无关，个人空间链接也是 MT 的）
+    _maintainer = await _loadProfile(
+      SpecialThanks.defaultSiteHost,
+      AboutPage.maintainerUid,
+      'about_maintainer',
+    );
+    if (mounted) setState(() {});
+  }
+
+  /// 读取某个站点某 UID 的资料：先读持久化缓存，缺失时按 UID 抓取一次并写回。
+  ///
+  /// 失败（人机验证 / 防火墙 / 网络异常）一律静默，返回 null 让调用方显示占位。
+  Future<UserProfile?> _loadProfile(
+    String host,
+    String uid,
+    String cacheKey,
+  ) async {
     final cached = await SettingsRepository.instance.getSiteState(
       host,
-      'about_author',
+      cacheKey,
     );
     if (cached != null && cached.isNotEmpty) {
       try {
         final map = jsonDecode(cached) as Map<String, dynamic>;
-        if (mounted) setState(() => _author = UserProfile.fromMap(map));
-        return;
+        return UserProfile.fromMap(map);
       } catch (_) {
         // 缓存损坏则走网络重新获取
       }
     }
     try {
-      // 作者资料固定在作者所属站点获取，携带的 Cookie/Referer 不会跟着当前站点漂移。
+      // 资料固定在所属站点获取，携带的 Cookie/Referer 不会跟着当前站点漂移。
       // 当前站点必须用全局 Dio（带当前登录账号）：scopedDio 默认是游客罐，
       // 而个人空间页对游客可能直接返回拦截页（见 docs/27 的"当前站点不建作用域会话"）。
       final isCurrentSite = host == SiteStore.instance.host;
@@ -164,23 +194,24 @@ class _AboutPageState extends State<AboutPage> {
       final raw = await space_api.getUserProfile(
         dio,
         uid: uid,
-        // 作者资料是「进入关于页」附带的非关键请求：命中人机验证 / 防火墙时
+        // 资料是「进入关于页」附带的非关键请求：命中人机验证 / 防火墙时
         // 不能弹全局验证页（会盖在关于页上、且此请求并非用户主动发起）。
         // 打上「已处理」标记，让拦截器直接返回原响应，静默失败保留占位即可。
         options: Options(extra: {kInterstitialHandledFlag: true}),
       );
-      if (raw['success'] != true || raw['profile'] == null) return;
+      if (raw['success'] != true || raw['profile'] == null) return null;
       final profile = UserProfile.fromMap(
         (raw['profile'] as Map).cast<String, dynamic>(),
       );
       await SettingsRepository.instance.setSiteState(
         host,
-        'about_author',
+        cacheKey,
         jsonEncode(profile.toMap()),
       );
-      if (mounted) setState(() => _author = profile);
+      return profile;
     } catch (e) {
-      AppLogger.w('ABOUT', '作者信息获取失败: $e');
+      AppLogger.w('ABOUT', '作者信息获取失败($uid@$host): $e');
+      return null;
     }
   }
 
@@ -335,6 +366,18 @@ class _AboutPageState extends State<AboutPage> {
             ],
           ]),
 
+          _sectionTitle('致谢'),
+          _card([
+            _linkTile(
+              icon: Icons.favorite_outline,
+              title: '致谢名单',
+              subtitle: '上游作者、技术栈与底层开源依赖',
+              onTap: () => context.push('/settings/credits'),
+            ),
+          ]),
+
+          // 论坛鸣谢（帖主/教程作者）仍留在关于页：条目少且带帖子标题，
+          // 点开是论坛帖子，与「致谢名单」里点开复制仓库地址的语义不同。
           FutureBuilder<List<SpecialThanks>>(
             future: _thanks,
             builder: (context, snapshot) {
@@ -552,92 +595,134 @@ class _AboutPageState extends State<AboutPage> {
     );
   }
 
-  /// 作者卡片：头像 + 昵称 + 等级，点击进入论坛个人空间
+  /// 作者卡片：原作者与维护者两个头像并列，各自点击进入自己的论坛个人空间
   ///
-  /// 资料来自 `_author`（按 UID 动态获取并持久化）；未取到时只显示头像与占位。
+  /// 资料来自 [_author] / [_maintainer]（按 UID 动态获取并持久化）；
+  /// 未取到时只显示头像与占位。
   Widget _authorCard(ColorScheme cs) {
-    final nickname = _author?.nickname ?? '';
-    final level = _authorLevelText;
-    final signature = _authorSignatureText;
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _openLink(_authorSpaceUrl),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              UserAvatar(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Row(
+          children: [
+            // 原作者（上游）：头像 + 昵称 + 等级
+            Expanded(
+              child: _personBlock(
+                cs,
                 uid: AboutPage.authorUid,
-                nickname: nickname,
-                radius: 28,
+                nickname: _author?.nickname ?? '',
+                level: _authorLevelText,
+                signature: _authorSignatureText,
                 siteHost: AboutPage.authorSiteHost,
-                tapAction: AvatarTapAction.none,
+                onTap: () => _openLink(_authorSpaceUrl),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            nickname.isEmpty ? '—' : nickname,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        if (level.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: cs.secondaryContainer,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              level,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: cs.onSecondaryContainer,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    _siteBadge(cs, AboutPage.authorSiteHost),
-                    if (signature.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        signature,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ],
+            ),
+            // 竖分隔线，两个头像视觉上"并排"但不粘连
+            Container(
+              width: 1,
+              height: 88,
+              color: cs.outlineVariant,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+            ),
+            // 本 fork 维护者：头像 + 昵称（固定 MT 论坛）
+            Expanded(
+              child: _personBlock(
+                cs,
+                uid: AboutPage.maintainerUid,
+                nickname: _maintainer?.nickname.isNotEmpty == true
+                    ? _maintainer!.nickname
+                    : AboutPage.maintainerName,
+                level: _maintainerLevelText,
+                signature: '',
+                siteHost: SpecialThanks.defaultSiteHost,
+                onTap: () => _openLink(AboutPage.maintainerSpaceUrl),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 维护者等级文本（与原作者同规则，资料缺失时为空）
+  String get _maintainerLevelText {
+    final a = _maintainer;
+    if (a == null) return '';
+    final parts = [
+      a.level,
+      a.customTitle,
+    ].where((s) => s.trim().isNotEmpty).toList();
+    return parts.isNotEmpty ? parts.join(' ') : a.userGroup;
+  }
+
+  /// 单个作者块：头像在上、昵称/等级/站点标识在下，整块可点
+  Widget _personBlock(
+    ColorScheme cs, {
+    required String uid,
+    required String nickname,
+    required String level,
+    required String signature,
+    required String siteHost,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            UserAvatar(
+              uid: uid,
+              nickname: nickname,
+              radius: 28,
+              siteHost: siteHost,
+              tapAction: AvatarTapAction.none,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              nickname.isEmpty ? '—' : nickname,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            if (level.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: cs.secondaryContainer,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  level,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSecondaryContainer,
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right, color: cs.outline),
             ],
-          ),
+            const SizedBox(height: 4),
+            _siteBadge(cs, siteHost),
+            if (signature.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                signature,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+              ),
+            ],
+          ],
         ),
       ),
     );

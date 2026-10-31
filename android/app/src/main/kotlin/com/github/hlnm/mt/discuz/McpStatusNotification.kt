@@ -1,4 +1,4 @@
-package com.github.qcxs.discuz
+package com.github.hlnm.mt.discuz
 
 import android.Manifest
 import android.app.Notification

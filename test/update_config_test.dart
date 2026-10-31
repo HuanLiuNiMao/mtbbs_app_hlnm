@@ -114,6 +114,54 @@ void main() {
         'fork-apk',
       );
     });
+
+    test('同时发布签名/未签名时优先选已签名产物', () {
+      const mixed = [
+        ReleaseAsset(
+          name: 'MTBBS_android_1.2.0_arm64-v8a_unsigned.apk',
+          downloadUrl: 'apk-unsigned',
+        ),
+        ReleaseAsset(
+          name: 'MTBBS_android_1.2.0_arm64-v8a.apk',
+          downloadUrl: 'apk-signed',
+        ),
+      ];
+      expect(
+        UpdateService.selectAsset(
+          mixed,
+          rules(UpdatePlatform.android),
+          'arm64-v8a',
+        ),
+        'apk-signed',
+      );
+    });
+
+    test('只发布未签名产物时回退到 unsigned（不返回 null）', () {
+      const onlyUnsigned = [
+        ReleaseAsset(
+          name: 'MTBBS_android_1.2.0_arm64-v8a_unsigned.apk',
+          downloadUrl: 'apk-unsigned',
+        ),
+      ];
+      expect(
+        UpdateService.selectAsset(
+          onlyUnsigned,
+          rules(UpdatePlatform.android),
+          'arm64-v8a',
+        ),
+        'apk-unsigned',
+      );
+      expect(
+        UpdateService.isUnsignedAsset(
+          'MTBBS_android_1.2.0_x86_64_unsigned.apk',
+        ),
+        isTrue,
+      );
+      expect(
+        UpdateService.isUnsignedAsset('MTBBS_android_1.2.0_x86_64.apk'),
+        isFalse,
+      );
+    });
   });
 
   group('自动检查限流', () {

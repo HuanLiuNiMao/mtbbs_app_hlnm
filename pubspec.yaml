@@ -142,6 +142,8 @@ flutter:
     - assets/config/cache.json
     - assets/config/quick_replies.json
     - assets/config/thanks.json
+    # 致谢名单（上游项目 / 技术栈 / 底层依赖），关于页「致谢名单」二级页读取
+    - assets/config/credits.json
     # 关于页展示的应用图标，由 mipmap-xxxhdpi/ic_launcher.png 复制而来
     - assets/icon/app_icon.png
 
