@@ -76,6 +76,12 @@ class SessionRegistry {
     // 与全局活跃罐完全相同，两个 `PersistCookieJar` 实例指向同一份文件时会
     // 用各自的内存副本互相覆盖 —— 人机验证 cookie 被写回旧值，表现为
     // "验证过了还是被拦"（见 docs/27）。
+    //
+    // 匿名会话要排在它**之前**：当前站点的匿名访问也刻意不用全局 Dio
+    // （全局 Dio 带着登录态），罐目录是独立的 `anon_cookies/{host}/`，
+    // 与全局活跃罐无交集。
+    await _buildAnonSession(host, resolvedBase);
+
     if (host == SiteStore.instance.host) return;
 
     try {
@@ -133,18 +139,60 @@ class SessionRegistry {
     return session;
   }
 
+  /// 建（或重建）某站点的**匿名会话** —— 该站点的游客身份，请求不带登录 cookie。
+  ///
+  /// 与账号会话并列存放（键 `{host}|@anon`），由 `anon=1` 的 location 选中。
+  /// 当前站点也有它：匿名访问的语义就是"不带登录态"，不能复用全局 Dio。
+  ///
+  /// 失败只记日志：匿名入口是辅助功能，不能因为它建不起来就拖垮站点初始化。
+  Future<void> _buildAnonSession(String host, String baseUrl) async {
+    try {
+      final dio = await ApiService().anonDio(host: host, baseUrl: baseUrl);
+      _sessions['$host|$kAnonScopeAccount'] = FixedSiteSession(
+        host: host,
+        baseUrl: baseUrl,
+        accountName: null,
+        uid: '0',
+        username: '',
+        dio: dio,
+        anonymous: true,
+      );
+    } catch (e) {
+      AppLogger.w('SESSION', '构建 $host 匿名会话失败: $e');
+    }
+  }
+
   void _dropSessions(String host) {
     _sessions.removeWhere((k, _) => k.startsWith('$host|'));
   }
 
   // ==================== 页面读取（同步） ====================
 
-  /// 解析页面需要的会话：没有任何 `site` 参数时返回 null（调用方用全局会话）。
+  /// 解析页面需要的会话：没有任何 `site` / `anon` 参数时返回 null（调用方用全局会话）。
+  ///
+  /// - `anon=1`：当前站点的**匿名**会话（不带登录态，只读）；
+  /// - `site=<host>`：别的站点的临时会话（缺省该站默认账号，见 [resolve]）。
+  ///
+  /// 两者同时出现时以 `site` 为准并忽略 `anon`（跨站点本来就不带本站登录态，
+  /// 再叠一层匿名没有意义，也没有对应的 Dio）。
   SiteSession? sessionForLocation(Uri uri) {
     final site = uri.queryParameters['site'];
-    if (site == null || site.isEmpty) return null;
+    final anon = uri.queryParameters['anon'] == '1';
+    if (site == null || site.isEmpty) {
+      if (!anon) return null;
+      return anonymousSessionForHost(SiteStore.instance.host);
+    }
     if (site == SiteStore.instance.host) return null;
     return resolve(site, account: uri.queryParameters['as']);
+  }
+
+  /// 某站点的匿名会话（`anon=1` 页用）。
+  ///
+  /// 找不到（站点未配置 / 尚未预建）时返回 null —— 调用方会退回全局会话，
+  /// 页面仍能打开，只是不匿名；这比抛异常让整页白屏好。
+  SiteSession? anonymousSessionForHost(String host) {
+    if (_hosts[host] == null) return null;
+    return _sessions['$host|$kAnonScopeAccount'];
   }
 
   /// 解析指定站点（可选指定账号）的临时会话。

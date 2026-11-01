@@ -85,6 +85,19 @@ class AppPaths {
     String account,
   ) async => '${await cookiesDirForHost(host)}/$account';
 
+  /// 匿名浏览专用罐目录 `{appDataDir}/anon_cookies/{host}/`。
+  ///
+  /// 刻意**不与账号罐同根**（`cookies/{host}/`）：
+  /// - 不能复用游客罐（`cookies/{host}/` 根）：那是全局 `switchToGuest` 用的罐，
+  ///   两个 `PersistCookieJar` 指向同一目录会互相覆盖（见 docs/27）；
+  /// - 也不能放在 `cookies/{host}/.anon/`：`accountJarDirsForHost` 会把"含子目录"
+  ///   的条目当成账号罐，进而用**另一个** `PersistCookieJar` 实例往同一目录补写
+  ///   客户端级 cookie —— 又变成两个实例互相覆盖。
+  ///
+  /// 独立根目录同时天然把匿名罐排除在账号罐扫描之外。
+  static Future<String> anonCookiesDirForHost(String host) async =>
+      '${await appDataDir}/anon_cookies/$host';
+
   /// 列出本站点所有**账号罐**目录（`cookies/{host}/{账号}/`）。
   ///
   /// 用于把「客户端级 cookie」（人机验证 / 防火墙）补写到每个罐：这类 cookie 与

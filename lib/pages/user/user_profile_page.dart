@@ -7,6 +7,7 @@ import 'package:mtbbs/config/brand_colors.dart';
 import 'package:mtbbs/core/app/app_capabilities.dart';
 import 'package:mtbbs/core/app/site_session.dart';
 import 'package:mtbbs/core/app/site_scope.dart';
+import 'package:mtbbs/core/app/verification_gate.dart';
 import 'package:mtbbs/core/settings/settings_repository.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/string_utils.dart';
@@ -68,16 +69,28 @@ class _UserProfilePageState extends State<UserProfilePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _session = SiteScope.of(context);
-    if (_sessionBound) return;
+    final next = SiteScope.of(context);
+    // 同一页面上身份可能被换掉（匿名横幅的「用登录身份」是 `replace` 到无 `anon`
+    // 的同一路径，GoRoute 的 key 不变 → State 复用）。此时必须重新加载：
+    // 否则只读守卫按新会话放开，但关注态等仍停留在匿名时的空值。
+    final switched = _sessionBound && !identical(next, _session);
+    _session = next;
+    if (_sessionBound && !switched) return;
     _sessionBound = true;
     _load();
   }
 
-  /// 跨站点只读守卫：命中时提示并返回 true
+  /// 只读守卫：跨站点临时会话 / 匿名访问会话命中时提示并返回 true
+  ///
+  /// 两种只读会话的提示文案不同：跨站点是"换了站点"，匿名是"同一站点的游客"，
+  /// 用户需要知道该做什么才能恢复互动。
   bool _guardReadOnly() {
     if (!_session.temporary) return false;
-    showToast('跨站点浏览为只读：发帖/留言/私信请先切换到目标站点');
+    showToast(
+      _session.anonymous
+          ? '匿名浏览为只读：需要互动请重新以登录身份打开本页'
+          : '跨站点浏览为只读：发帖/留言/私信请先切换到目标站点',
+    );
     return true;
   }
 
@@ -85,6 +98,22 @@ class _UserProfilePageState extends State<UserProfilePage> {
   void _openAppPath(String appPath) {
     if (_guardReadOnly()) return;
     context.push(appPath);
+  }
+
+  /// 错误页的「网页验证」入口 —— 带上本页会话，验证结果才会写进本页的罐
+  /// （匿名页用匿名罐，跨站点页用该站作用域罐）。
+  Future<void> _verifyFromErrorPage() async {
+    final ok = await VerificationGate.instance.verifyManually(
+      url:
+          '${_session.baseUrl}/home.php?mod=space&uid=${widget.uid}&do=profile',
+      session: _session,
+    );
+    if (!mounted) return;
+    if (ok) {
+      await _load();
+    } else {
+      showToast('网页验证未通过，请重试');
+    }
   }
 
   /// 供 part 扩展使用（扩展无法直接访问受保护的 setState）
@@ -135,9 +164,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
           ),
         );
       }
-      // 加载成功后拉取关注态（他人主页；仅登录时，取 PC 模板按钮状态与令牌）
-      final auth = context.read<AuthProvider>();
-      if (auth.isLoggedIn && widget.uid != 'self' && auth.uid != widget.uid) {
+      // 加载成功后拉取关注态（他人主页；仅本会话已登录时，取 PC 模板按钮状态与令牌）
+      //
+      // 判据用**会话身份**而不是 `AuthProvider`：跨站点页 / 匿名页的登录态与全局
+      // 账号不同（匿名页恒为游客）。用全局 auth 判断会让匿名页拿着匿名 Dio 去拉
+      // "我有没有关注他"，再允许点"收听"（写操作），既无意义也会失败。
+      if (_session.isLoggedIn &&
+          widget.uid != 'self' &&
+          _session.uid != widget.uid) {
         _loadFollowStatus();
       }
     } catch (e) {
@@ -151,10 +185,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 拉取他人主页关注态与操作令牌（失败静默，仅不显示关注项）
   Future<void> _loadFollowStatus() async {
     try {
-      final data = await follow_api.getFollowStatus(
-        _dio,
-        widget.uid,
-      );
+      final data = await follow_api.getFollowStatus(_dio, widget.uid);
       if (!mounted) return;
       if (data['success'] == true) {
         setState(() {
@@ -406,15 +437,63 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Widget _buildBody() {
     if (_loading) return const LoadingView();
     if (_error != null) {
-      return PageErrorWidget(message: _error!, onRetry: _load, showBack: false);
+      return PageErrorWidget(
+        message: _error!,
+        onRetry: _load,
+        showBack: false,
+        // 匿名 / 跨站点页被拦时也要能过验证：显式带上本页会话，
+        // 否则验证结果会写进登录罐（见 VerificationGate.verifyManually）。
+        onVerify: _session.temporary ? _verifyFromErrorPage : null,
+      );
     }
     if (_profile == null) {
       return const EmptyView(icon: Icons.person_off_outlined, text: '无数据');
     }
-
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView(children: _contentSections()),
+      child: ListView(
+        children: [
+          if (_session.anonymous) _buildAnonymousBanner(),
+          ..._contentSections(),
+        ],
+      ),
+    );
+  }
+
+  /// 匿名浏览提示条 —— 让用户始终知道"这页不是我登录身份看的"。
+  ///
+  /// 右侧提供「用登录身份打开」：把 location 上的 `anon=1` 去掉重开一页，
+  /// 比"退出再进"直观（且不影响其它已打开的页面）。
+  Widget _buildAnonymousBanner() {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: cs.surfaceContainerHigh,
+      child: Row(
+        children: [
+          Icon(Icons.visibility_off, size: 14, color: cs.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '正在以游客身份匿名浏览（只读，站点不记录你的访问）',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+            ),
+          ),
+          TextButton(
+            onPressed: () =>
+                GoRouter.of(context).replace('/user/${widget.uid}'),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 28),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('用登录身份', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
     );
   }
 

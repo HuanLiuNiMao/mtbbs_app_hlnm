@@ -7,6 +7,7 @@ import 'package:mtbbs/core/app/cookie_sync.dart';
 import 'package:mtbbs/core/app/page_helper.dart';
 import 'package:mtbbs/core/app/site_store.dart';
 import 'package:mtbbs/core/app/session_registry.dart';
+import 'package:mtbbs/core/app/site_session.dart';
 import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/pages/verify/verify_browser_page.dart';
 import 'package:mtbbs/services/api_service.dart';
@@ -88,18 +89,22 @@ class VerificationGate {
   /// 用户可以直接打开验证浏览器；验证通过后 cookie 回流到**该 URL 所属站点**
   /// 的罐（跨站点页面回流到它自己的作用域罐，而不是全局活跃罐）。
   ///
-  /// 不走冷却期：这是用户显式发起的操作。
-  Future<bool> verifyManually({required String url, String? userAgent}) async {
+  /// [session] 传入调用页自己的会话：匿名页（`anon=1`）与当前站点同 host，
+  /// 只看 URL 会误判成"全局会话"，把验证结果写进登录罐 —— 匿名页于是继续被拦。
+  Future<bool> verifyManually({
+    required String url,
+    String? userAgent,
+    SiteSession? session,
+  }) async {
     final nav = rootNavigatorKey.currentState;
     if (nav == null) return false;
-    final ctx = _contextForUrl(url);
+    final ctx = _contextForUrl(url, pageSession: session);
     if (ctx == null) {
       AppLogger.w('PAGE', '网页验证：无法确定 $url 所属站点');
       return false;
     }
     final existing = _inFlight;
     if (existing != null) return existing.future;
-
     final completer = Completer<bool>();
     _inFlight = completer;
     final ok = await _run(nav: nav, url: url, userAgent: userAgent, ctx: ctx);
@@ -169,9 +174,26 @@ class VerificationGate {
   }
 
   /// 按 URL 解析出"该用哪个客户端 / 罐 / 站点"。
-  InterstitialContext? _contextForUrl(String url) {
+  ///
+  /// [pageSession] 非空且为临时/匿名会话时**以它为准**（页面自己知道该用哪个罐）。
+  /// 只在 URL 上判断是不够的：匿名页的 host 就是当前站点，会被误判为全局会话。
+  InterstitialContext? _contextForUrl(String url, {SiteSession? pageSession}) {
     final uri = Uri.tryParse(url);
     if (uri == null || uri.host.isEmpty) return null;
+    if (pageSession != null && pageSession.temporary) {
+      final jar = pageSession.anonymous
+          ? ApiService().anonJar(host: pageSession.host)
+          : ApiService().scopedJar(
+              host: pageSession.host,
+              account: pageSession.accountName,
+            );
+      if (jar == null) return null;
+      return InterstitialContext(
+        client: pageSession.dio,
+        jar: jar,
+        baseUrl: pageSession.baseUrl,
+      );
+    }
     final activeJar = ApiService().activeCookieJar;
     if (uri.host == SiteStore.instance.host) {
       if (activeJar == null) return null;

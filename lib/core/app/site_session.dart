@@ -47,6 +47,14 @@ abstract class SiteSession {
   /// 是否为跨站点临时会话
   bool get temporary;
 
+  /// 是否为「匿名访问」会话 —— 当前站点 + **不带任何登录态**。
+  ///
+  /// 用于「我的」页的「匿名访问用户主页」：Discuz 的空间页会按登录态记录访客，
+  /// 用当前账号打开会留下足迹；`anonymous = true` 的会话请求不带登录 cookie，
+  /// 站点侧只看到游客。与 [temporary] 一样是只读的，但语义不同（不是"别的站点"，
+  /// 而是"同一个站点的游客"），页面提示文案要分开。
+  bool get anonymous => false;
+
   /// 绑定到本会话站点 + 账号的 Dio
   Dio get dio;
 
@@ -83,6 +91,9 @@ class GlobalSiteSession implements SiteSession {
   bool get temporary => false;
 
   @override
+  bool get anonymous => false;
+
+  @override
   bool get canWrite => isLoggedIn && !temporary;
 
   @override
@@ -109,6 +120,9 @@ class FixedSiteSession implements SiteSession {
   @override
   final Dio dio;
 
+  @override
+  final bool anonymous;
+
   FixedSiteSession({
     required this.host,
     required this.baseUrl,
@@ -116,6 +130,7 @@ class FixedSiteSession implements SiteSession {
     required this.uid,
     required this.username,
     required this.dio,
+    this.anonymous = false,
   });
 
   @override

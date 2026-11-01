@@ -5,10 +5,28 @@ import 'package:flutter/material.dart';
 /// 控制器由本 State 持有、随弹窗子树卸载才释放：pop 只完成 Future，
 /// 弹窗退场动画期间子树仍在；提前或延后 dispose 会抛
 /// 「A TextEditingController was used after being disposed」。
+///
+/// 标题 / 确认按钮 / 占位文案可定制：用户主页右上角的「跳转用户」与「我的」页的
+/// 「匿名访问用户主页」共用同一套输入校验，只是语义不同。
 class UidPickerDialog extends StatefulWidget {
-  const UidPickerDialog({super.key, required this.onNavigateToUid});
+  const UidPickerDialog({
+    super.key,
+    required this.onNavigateToUid,
+    this.title = '跳转用户',
+    this.confirmLabel = '跳转',
+    this.hintText = '输入 UID',
+  });
 
   final void Function(int uid) onNavigateToUid;
+
+  /// 弹窗标题
+  final String title;
+
+  /// 确认按钮文案
+  final String confirmLabel;
+
+  /// 输入框占位文案
+  final String hintText;
 
   @override
   State<UidPickerDialog> createState() => _UidPickerDialogState();
@@ -35,14 +53,14 @@ class _UidPickerDialogState extends State<UidPickerDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('跳转用户'),
+      title: Text(widget.title),
       content: TextField(
         controller: _controller,
         keyboardType: TextInputType.number,
         autofocus: true,
-        decoration: const InputDecoration(
-          hintText: '输入 UID',
-          border: OutlineInputBorder(),
+        decoration: InputDecoration(
+          hintText: widget.hintText,
+          border: const OutlineInputBorder(),
           isDense: true,
         ),
       ),
@@ -51,7 +69,7 @@ class _UidPickerDialogState extends State<UidPickerDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('取消'),
         ),
-        FilledButton(onPressed: _submit, child: const Text('跳转')),
+        FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
       ],
     );
   }

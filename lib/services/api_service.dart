@@ -22,6 +22,12 @@ const String kInterstitialHandledFlag = 'mtbbsInterstitialHandled';
 /// 前缀（MT 论坛是 `cQWy_2132_`）由站点配置决定，所以按后缀匹配，不写死全名。
 const String kBrowseModeCookieSuffix = '_mobile';
 
+/// 匿名浏览的作用域键后缀（`{host}|@anon`）。
+///
+/// 用于三处同名空间：`ApiService` 的 scoped Dio / CookieJar 缓存、
+/// `SessionRegistry` 的会话表。账号名来自数据库，不会等于 `@anon`，不会撞车。
+const String kAnonScopeAccount = '@anon';
+
 /// 拦截页恢复上下文 —— "这次被拦的请求属于哪个客户端 / 罐 / 站点"。
 ///
 /// 无状态化后 Dio 不再唯一（全局 + 各站点作用域），恢复流程不能再从
@@ -331,6 +337,40 @@ class ApiService {
   /// 取作用域 CookieJar（图片 / 验证等非 Dio 场景需要带上登录 Cookie）
   CookieJar? scopedJar({required String host, String? account}) =>
       _scopedJars[_scopeKey(host, account)];
+
+  /// 匿名浏览专用 Dio —— 请求**不带任何登录 cookie**。
+  ///
+  /// 用于「我的」页的「匿名访问用户主页」：Discuz 的空间页、在线列表都按登录态
+  /// 记录访问者，用当前账号打开会留下访客足迹；改用这个 Dio 后站点只看到游客。
+  ///
+  /// 罐目录独立（`anon_cookies/{host}/`，见 [AppPaths.anonCookiesDirForHost]），
+  /// 既不与全局游客罐共享（两个 `PersistCookieJar` 指向同一目录会互相覆盖），
+  /// 也不在账号罐的扫描范围内（否则会被 `mirrorToAllJarsForHost` 用另一实例写同一目录）。
+  /// 与账号罐一样，人机验证 / 防火墙 cookie 在**同一罐内**随服务端刷新，
+  /// 因此一次会话内不需要反复验证。
+  Future<Dio> anonDio({required String host, required String baseUrl}) async {
+    final key = _anonScopeKey(host);
+    final cached = _scopedDios[key];
+    if (cached != null) return cached;
+
+    final dir = await AppPaths.anonCookiesDirForHost(host);
+    final jar = PersistCookieJar(
+      storage: FileStorage(dir),
+      ignoreExpires: true,
+    );
+    final d = _createDio(baseUrl, jar);
+    _scopedDios[key] = d;
+    _scopedJars[key] = jar;
+    return d;
+  }
+
+  /// 匿名作用域键。与账号键同一命名空间（`{host}|{key}`），
+  /// 这样 [dropScopedForHost] 的前缀清理能一并覆盖。
+  String _anonScopeKey(String host) => '$host|$kAnonScopeAccount';
+
+  /// 匿名作用域 CookieJar（验证流程 / 图片下载需要带 cookie 时用）
+  CookieJar? anonJar({required String host}) =>
+      _scopedJars[_anonScopeKey(host)];
 
   /// 丢弃某站点的全部作用域 Dio（账号登录态变化 / 站点配置变更后重建）
   void dropScopedForHost(String host) {
