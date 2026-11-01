@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mtbbs/config/site_config.dart';
@@ -21,12 +22,19 @@ import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/database_helper.dart';
 import 'package:mtbbs/core/utils/content_filter.dart';
 import 'package:mtbbs/core/utils/frequent_order.dart';
+import 'package:mtbbs/models/backup/backup_item.dart';
 import 'package:mtbbs/models/settings/app_settings.dart';
+import 'package:mtbbs/models/settings/backup_settings.dart';
 import 'package:mtbbs/models/settings/settings_defaults.dart'
     as settings_defaults;
 import 'package:mtbbs/models/settings/site_settings.dart';
+import 'package:mtbbs/platform/optional/secure_store.dart';
+import 'package:mtbbs/services/backup/backup_service.dart';
+import 'package:mtbbs/services/backup/backup_scheduler.dart';
+import 'package:mtbbs/services/backup/backup_web_client.dart';
 
 part 'settings_provider_accessors.dart';
+part 'settings_provider_backup.dart';
 part 'settings_provider_content.dart';
 part 'settings_provider_managed_lists.dart';
 part 'settings_provider_sites.dart';
@@ -114,6 +122,9 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 用户自定义站点列表（持久化）
   List<Site> _sites = [];
+
+  /// 备份/恢复设置（勾选项、Web 备份服务器、日志保留）
+  BackupSettings _backup = BackupSettings.defaults();
 
   /// 工具栏项配置（全局，只排序+显隐）
   List<ManagedItem> _toolbarItems = defaultToolbarItems();

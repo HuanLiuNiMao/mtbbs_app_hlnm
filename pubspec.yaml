@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 26.10.25+2070
+version: 26.10.26+2071
 
 environment:
   sdk: ^3.12.2
@@ -111,6 +111,16 @@ dependencies:
   # MCP 服务端（只读，本机 Streamable HTTP，双 era 兼容 2026-07-28 / 2025-11-25）
   # 锁到具体版本：协议与安全默认值随版本变化，升级前先读 docs/09
   mcp_dart: 2.4.2
+
+  # 备份定时任务：走系统级 WorkManager（Android）/ BGTaskScheduler（iOS），
+  # 与 Timer 不同，即使 App 不在前台、进程被杀也能按周期触发。
+  # 备份是「离线可延后」的任务，系统约束（仅 Wi-Fi / 充电）与省电策略天然匹配。
+  # 周期下限 15 分钟（Android 硬限制），「一周一次」这类长周期同样走这里。
+  workmanager: ^0.10.10
+  # Web 备份鉴权头值的可选加密存储（Android Keystore / iOS Keychain）。
+  # 锁 10.x：11.x 依赖 win32 ^6，与 file_picker 8.x 的 win32 ^5 冲突，
+  # `flutter pub get` 会直接版本求解失败（实测）。
+  flutter_secure_storage: ^10.3.4
 
 dev_dependencies:
   flutter_test:

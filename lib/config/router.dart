@@ -24,6 +24,8 @@ import 'package:mtbbs/pages/settings/cache_settings_page.dart';
 import 'package:mtbbs/pages/settings/thread_cache_manage_page.dart';
 import 'package:mtbbs/pages/settings/editor_settings_page.dart';
 import 'package:mtbbs/pages/settings/history_format_page.dart';
+import 'package:mtbbs/pages/settings/backup_page.dart';
+import 'package:mtbbs/pages/settings/backup_log_page.dart';
 import 'package:mtbbs/pages/settings/models/developer_settings.dart';
 import 'package:mtbbs/pages/settings/models/mcp_settings.dart';
 import 'package:mtbbs/pages/settings/settings_group_page.dart';
@@ -71,7 +73,9 @@ GoRouter buildRouter({
         // `as=<账号>`）表示这一页临时以别的站点身份访问（见 core/app/site_session.dart）。
         // 所有子路由都在作用域内，页面用 SiteScope.of(context) 取代全局单例。
         builder: (_, state, child) {
-          final session = SessionRegistry.instance.sessionForLocation(state.uri);
+          final session = SessionRegistry.instance.sessionForLocation(
+            state.uri,
+          );
           final wrapped = WindowChrome(
             child: GlobalShortcutsWrapper(child: child),
           );
@@ -169,6 +173,16 @@ GoRouter buildRouter({
                 username: state.uri.queryParameters['username'] ?? '',
               ),
             ),
+          ),
+          // 备份与恢复：自定义备份项 / Web 备份 / 运行日志（见 docs/28）
+          GoRoute(
+            path: '/settings/backup',
+            pageBuilder: (_, __) => const NoTransitionPage(child: BackupPage()),
+          ),
+          GoRoute(
+            path: '/settings/backup/logs',
+            pageBuilder: (_, __) =>
+                const NoTransitionPage(child: BackupLogPage()),
           ),
           GoRoute(
             path: '/settings/about',

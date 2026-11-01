@@ -36,6 +36,7 @@ import 'package:mtbbs/core/app/desktop_window.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/max_screen_size.dart';
 import 'package:mtbbs/mcp/mcp.dart';
+import 'package:mtbbs/services/backup/backup_scheduler.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/dialog/mcp_quick_dialog.dart';
 import 'package:mtbbs/widgets/dialog/update_dialog.dart';
@@ -84,7 +85,13 @@ void main() async {
   await initDesktopWindow(brightness: windowBrightnessFor(settings.themeMode));
 
   // 把错峰间隔、缓存管理器、头像重定向有效期同步到全局服务
+  // （内部也会用当前备份设置同步系统级定时任务，见 applyBackupRuntimeConfig）
   settings.applyRuntimeConfig();
+
+  // Web 备份的系统级调度：initialize 必须在**注册任务之前**完成，
+  // 否则原生侧没有 callbackDispatcher 句柄，周期到了也唤不起 Dart。
+  // 失败（鸿蒙 / 桌面无实现）只关能力位，不影响其它功能。
+  unawaited(BackupScheduler.instance.init());
 
   // 过期缓存自动删除：仅启动时清一次
   // （flutter_cache_manager 本身不主动删过期文件，见 docs/01 图片缓存规范）

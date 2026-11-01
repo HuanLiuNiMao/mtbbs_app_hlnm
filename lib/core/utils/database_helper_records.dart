@@ -82,6 +82,35 @@ extension DatabaseHelperRecords on DatabaseHelper {
     await _browseStore.record(id).delete(db);
   }
 
+  /// 按类型批量删除（备份「覆盖导入」时先清空该维度）。
+  ///
+  /// 浏览记录按 type 分维度：用户 `user`，帖子 `thread`/`mythread`/`reply`。
+  /// 覆盖导入时只清本维度，不影响另一维度与其它类型的历史。
+  Future<int> deleteBrowseRecordsByTypes(Set<String> types) async {
+    if (types.isEmpty) return 0;
+    final db = await database;
+    final records = await _browseStore.find(
+      db,
+      finder: Finder(filter: Filter.inList('type', types.toList())),
+    );
+    for (final r in records) {
+      await _browseStore.record(r.key).delete(db);
+    }
+    return records.length;
+  }
+
+  /// 批量写入浏览记录（去重按 id，upsert 语义；返回实际写入条数）
+  ///
+  /// 备份导入用：单条写入会逐次开事务，1000 条记录会很慢。
+  Future<int> upsertBrowseRecords(List<BrowseRecord> records) async {
+    if (records.isEmpty) return 0;
+    final db = await database;
+    for (final r in records) {
+      await _browseStore.record(r.id).put(db, r.toJson());
+    }
+    return records.length;
+  }
+
   Future<int> countBrowseRecords() async {
     final db = await database;
     return _browseStore.count(db);
@@ -265,6 +294,16 @@ extension DatabaseHelperRecords on DatabaseHelper {
     final records = await _snapshotStore.find(db);
     final keys = records.map((r) => r.value['sessionKey'] as String).toSet();
     return keys.toList();
+  }
+
+  /// 全部编辑器快照（备份用；按创建时间倒序）
+  Future<List<EditorSnapshot>> getAllEditorSnapshots() async {
+    final db = await database;
+    final records = await _snapshotStore.find(
+      db,
+      finder: Finder(sortOrders: [SortOrder('createdAt', false)]),
+    );
+    return records.map((r) => EditorSnapshot.fromJson(r.value)).toList();
   }
 
   // =================== 帖子预览缓存 ===================

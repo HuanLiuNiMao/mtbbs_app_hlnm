@@ -16,6 +16,8 @@ extension SettingsPersistence on SettingsProvider {
       medalDays: _medalCacheDays,
     );
     AvatarRedirectStore.instance.cacheTtl = Duration(days: _avatarCacheDays);
+    // 备份日志保留天数注入服务层（服务层不读 provider，避免循环依赖）
+    applyBackupRuntimeConfig();
   }
 
   Future<void> load() async {
@@ -66,7 +68,8 @@ extension SettingsPersistence on SettingsProvider {
       await _db.getSetting('commentFilterKeywords'),
     );
     // 评论屏蔽总开关（默认开，对齐 mtlite「评论屏蔽」）
-    _commentBlockEnabled = (await _db.getSettingBool('commentBlockEnabled')) ?? true;
+    _commentBlockEnabled =
+        (await _db.getSettingBool('commentBlockEnabled')) ?? true;
     // 评论屏蔽词预填：首次运行/内置词表版本升级时，把内置词表合并成的
     // 一条正则写进设置（对齐 mtlite「屏蔽词预置」机制——旧内置正则以
     // 「康康看下|」开头据此剔除，用户自定义词保留，可自由删改）。
@@ -82,7 +85,10 @@ extension SettingsPersistence on SettingsProvider {
         'commentFilterKeywords',
         jsonEncode(_commentFilterKeywords),
       );
-      await _db.setSetting('commentBlockWordsVersion', kCommentBlockWordsVersion);
+      await _db.setSetting(
+        'commentBlockWordsVersion',
+        kCommentBlockWordsVersion,
+      );
     }
     // ==================== 按列表点的帖子屏蔽配置（功能①扩展） ====================
     // 逐点加载 JSON 配置；损坏/缺省时回退空配置（不过滤）
@@ -193,6 +199,10 @@ extension SettingsPersistence on SettingsProvider {
     _skippedUpdateVersion = a.advanced.skippedUpdateVersion;
     _lastUpdateCheckAt = a.advanced.lastUpdateCheckAt;
     _developerMode = a.advanced.developerMode;
+    // 备份/恢复设置（勾选项、Web 服务器、日志保留天数）：从文档读回，
+    // 漏了这一行会表现为「重启后勾选状态与服务器配置全丢」
+    _backup = a.backup;
+    BackupService.instance.keepDays = _backup.logKeepDays;
   }
 
   AppSettings _buildAppSettings() => AppSettings(
@@ -269,6 +279,7 @@ extension SettingsPersistence on SettingsProvider {
       lastUpdateCheckAt: _lastUpdateCheckAt,
       developerMode: _developerMode,
     ),
+    backup: _backup,
   );
 
   Future<void> _persistApp() => _settings.setApp(_buildAppSettings());

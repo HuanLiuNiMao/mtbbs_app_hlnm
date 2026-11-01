@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_inappwebview_windows
   flutter_qjs_next
+  flutter_secure_storage_windows
   gal
   screen_retriever_windows
   url_launcher_windows

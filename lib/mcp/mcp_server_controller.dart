@@ -175,6 +175,32 @@ class McpServerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 备份导入后重新装载持久化配置（`load()` 带 `_loaded` 幂等锁，
+  /// 导入完直接调 `load()` 不会重读）。
+  ///
+  /// 端口/局域网开关变更需要重建 socket，故运行中会重启；令牌与分组
+  /// 由 `serverFactory` 按请求读取，下一次请求即生效。
+  Future<void> reloadFromStorage() async {
+    final wasEnabled = _enabled;
+    final oldPort = _port;
+    final oldRemote = _allowRemote;
+    _loaded = false;
+    await load();
+    if (!wasEnabled) {
+      // 之前未启用：导入的配置里若要求启用，这里不自动开启，
+      // 由用户在设置页手动打开（避免备份包静默开启监听端口）。
+      _enabled = false;
+      await _db.setSettingBool(_kEnabled, false);
+      notifyListeners();
+      return;
+    }
+    if (_server != null && (_port != oldPort || _allowRemote != oldRemote)) {
+      await stop();
+      await start();
+    }
+    notifyListeners();
+  }
+
   Future<void> setEnabled(bool value) async {
     if (_enabled == value) return;
     _enabled = value;

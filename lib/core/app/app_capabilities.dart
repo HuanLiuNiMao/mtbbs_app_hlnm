@@ -26,6 +26,12 @@ enum AppCapability {
 
   /// MCP 只读服务端。
   mcpServer,
+
+  /// 系统密钥库：Web 备份鉴权头值的加密存储。
+  secureStore,
+
+  /// 系统级后台定时任务：Web 备份的周期调度。
+  backgroundTask,
 }
 
 /// 模块级能力注册表。
@@ -100,6 +106,15 @@ abstract final class AppCapabilities {
       case AppCapability.mcpServer:
         // mcp_dart 是纯 Dart，鸿蒙可运行；启动失败时由控制器 disable。
         return true;
+      case AppCapability.secureStore:
+        // flutter_secure_storage 没有鸿蒙实现；鸿蒙回退明文并提示用户。
+        // 桌面（Windows/Linux/macOS）有实现，但 Linux 需要 libsecret，
+        // 缺失时运行时 disable 即可，不必在此按平台排除。
+        return !isOhos;
+      case AppCapability.backgroundTask:
+        // workmanager 有 Android / iOS / macOS / Linux / Web 实现，没有鸿蒙。
+        // 鸿蒙上定时备份入口隐藏，手动备份不受影响。
+        return !isOhos;
     }
   }
 }

@@ -10,6 +10,12 @@ import 'package:provider/provider.dart';
 /// 存储与工具组设置项
 List<SettingsModel> dataSettings() => [
   NormalSetting(
+    title: '备份与恢复',
+    subtitle: '自选备份内容、导入导出、Web 备份与运行日志',
+    icon: Icons.settings_backup_restore_outlined,
+    onTap: (ctx, s) => ctx.push('/settings/backup'),
+  ),
+  NormalSetting(
     title: '缓存管理',
     subtitle: '头像/表情/预览缓存，设置过期时间',
     icon: Icons.storage,

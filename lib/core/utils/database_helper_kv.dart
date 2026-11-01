@@ -215,4 +215,26 @@ extension DatabaseHelperKv on DatabaseHelper {
     final db = await database;
     await _settingsStore.record(key).put(db, {'value': value});
   }
+
+  // =================== 备份运行日志 ===================
+
+  /// 备份/恢复运行日志（JSON 数组，环形保留最近 N 条）
+  ///
+  /// 独立 key（`backup_run_log`）而不是塞进 `settings_app`：日志会持续增长，
+  /// 与设置文档混在一起会让每次 `_persistApp` 都重写整份日志。
+  Future<String?> getBackupLogRaw() async {
+    final db = await database;
+    final record = await _settingsStore.record('backup_run_log').get(db);
+    return record?['value'] as String?;
+  }
+
+  Future<void> setBackupLogRaw(String json) async {
+    final db = await database;
+    await _settingsStore.record('backup_run_log').put(db, {'value': json});
+  }
+
+  Future<void> clearBackupLog() async {
+    final db = await database;
+    await _settingsStore.record('backup_run_log').delete(db);
+  }
 }
