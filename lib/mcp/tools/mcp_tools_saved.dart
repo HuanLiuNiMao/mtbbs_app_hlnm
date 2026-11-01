@@ -4,6 +4,7 @@ import 'package:mtbbs/api/home/favorite/export.dart' as favorite;
 import 'package:mtbbs/api/home/mypost/export.dart' as mypost;
 import 'package:mtbbs/api/home/notice/export.dart' as notice;
 import 'package:mtbbs/core/utils/database_helper.dart';
+import 'package:mtbbs/core/utils/history_filter.dart';
 import 'package:mtbbs/mcp/mcp_types.dart';
 import 'package:mtbbs/mcp/tools/mcp_payloads.dart';
 import 'package:mtbbs/mcp/tools/mcp_tool_definition.dart';
@@ -45,9 +46,7 @@ List<McpToolDefinition> savedTools() => [
       'exttype': JsonSchema.string(
         description: '积分类型：1=好评 / 2=金币 / 3=信誉，留空=不限',
       ),
-      'optype': JsonSchema.string(
-        description: '操作类型代码（如 PRC=帖子被评分），留空=不限',
-      ),
+      'optype': JsonSchema.string(description: '操作类型代码（如 PRC=帖子被评分），留空=不限'),
     },
     run: (args) async {
       final page = McpArgs.integer(args, 'page', fallback: 1, min: 1, max: 200);
@@ -83,8 +82,16 @@ List<McpToolDefinition> savedTools() => [
       final view = McpArgs.str(args, 'view', fallback: 'system');
       final page = McpArgs.integer(args, 'page', fallback: 1, min: 1, max: 200);
       final result = view == 'mypost'
-          ? await mypost.getMypostList(ApiService().dio, page: page, type: 'post')
-          : await notice.getNoticeList(ApiService().dio, page: page, view: view);
+          ? await mypost.getMypostList(
+              ApiService().dio,
+              page: page,
+              type: 'post',
+            )
+          : await notice.getNoticeList(
+              ApiService().dio,
+              page: page,
+              view: view,
+            );
       return McpPayloads.notifications(result, view: view);
     },
   ),
@@ -93,10 +100,16 @@ List<McpToolDefinition> savedTools() => [
   McpToolDefinition(
     name: 'get_browse_history',
     group: McpToolGroup.localData,
-    description: '读取 App 本地保存的浏览记录（最近访问的帖子/用户）。该能力默认关闭，可由用户在 App 中开启。',
+    description:
+        '读取 App 本地保存的浏览记录（最近访问的帖子/用户）。支持 type 类型过滤与 query 关键词过滤（与 App 浏览记录页同一套匹配口径）。该能力默认关闭，可由用户在 App 中开启。',
     properties: {
       'type': JsonSchema.string(
         description: '记录类型过滤：thread / user / mythread / reply，留空返回全部',
+      ),
+      'query': JsonSchema.string(
+        description:
+            '关键词过滤（与 App 浏览记录页同一套口径：标题/作者/UID/TID/类型，'
+            '空格分隔多个关键词按 AND 匹配，大小写不敏感），留空不过滤',
       ),
       'limit': JsonSchema.integer(
         minimum: 1,
@@ -107,6 +120,7 @@ List<McpToolDefinition> savedTools() => [
     network: false, // 读本地数据库浏览记录
     run: (args) async {
       final type = McpArgs.str(args, 'type');
+      final query = McpArgs.str(args, 'query');
       final limit = McpArgs.integer(
         args,
         'limit',
@@ -118,8 +132,25 @@ List<McpToolDefinition> savedTools() => [
       final all = type.isEmpty
           ? await db.getAllBrowseRecords()
           : await db.getBrowseRecordsByType(type);
-      final records = all.take(limit).map((r) => r.toJson()).toList();
-      return {'count': records.length, 'total': all.length, 'records': records};
+      final matched = filterBrowseRecords(
+        all,
+        query,
+        // 没有 SettingsProvider 上下文，用默认模板渲染标题（占位符缺省保留）
+        titleOf: (r) => r.displayTitle(switch (r.type) {
+          'thread' => '{typeLabel} {title}',
+          'user' => '{typeLabel} {nickname}',
+          'mythread' => '{typeLabel} {title}',
+          'reply' => '{typeLabel} {title}',
+          _ => '{typeLabel}',
+        }),
+      );
+      final records = matched.take(limit).map((r) => r.toJson()).toList();
+      return {
+        'count': records.length,
+        'total': all.length,
+        'matched': matched.length,
+        'records': records,
+      };
     },
   ),
 ];

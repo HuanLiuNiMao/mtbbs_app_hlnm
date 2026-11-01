@@ -60,7 +60,7 @@ lib/mcp/
 | 论坛公开数据 | 开 | `list_forums`、`list_forum_threads`、`list_guide_threads`、`search_forum_threads`、`get_thread_detail`、`get_user_profile`、`list_user_threads`、`list_user_friends`、`list_user_follows`、`list_wall_messages`、`list_groups`、`list_group_forums`、`get_ranklist`、`get_online_users`、`get_rss_feed` |
 | 只读编辑器草稿 | 开 | `list_editor_sessions`、`get_editor_draft` |
 | 账号相关数据 | **关** | `list_my_favorites`、`list_credit_log`、`list_notifications` |
-| 本地浏览记录 | **关** | `get_browse_history` |
+| 本地浏览记录 | **关** | `get_browse_history`（`type` 类型过滤 + `query` 关键词过滤，与 App 浏览记录页同一套口径） |
 
 > `help` 是所有工具里唯一"教 AI 怎么用"的入口：返回能力清单、五类典型任务（总结最近帖子 / 总结某个账号 / 读编辑器草稿 / 搜索论坛内容 / 浏览圈子与留言板）的工具组合、参数约定与注意事项。同时 `McpServerOptions.instructions` 在连接时就会提醒"第一次先调 help"。
 >

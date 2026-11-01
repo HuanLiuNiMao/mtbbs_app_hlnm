@@ -5,12 +5,15 @@ import 'package:mtbbs/providers/history_provider.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/models/browse_record.dart';
 import 'package:mtbbs/core/utils/formatters.dart';
+import 'package:mtbbs/core/utils/history_filter.dart';
+import 'package:mtbbs/widgets/common/filter_search_field.dart';
 import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 import 'package:mtbbs/widgets/layout/state_views.dart';
 
 /// 浏览历史记录页面
 ///
-/// 支持按类型过滤（全部/帖子/用户），点击查看详情，滑动删除。
+/// 支持按类型过滤（全部/帖子/用户/我的帖子/回复），支持关键词本地搜索，
+/// 点击查看详情。
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key});
 
@@ -22,6 +25,10 @@ class _HistoryPageState extends State<HistoryPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
+  /// 搜索关键词（已 trim；大小写不敏感在 filter 内处理）
+  String _query = '';
+  final _searchController = TextEditingController();
+
   static const _tabs = ['全部', '帖子', '用户', '我的帖子', '回复'];
 
   @override
@@ -32,8 +39,26 @@ class _HistoryPageState extends State<HistoryPage>
 
   @override
   void dispose() {
+    _searchController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// 当前关键词 + 当前站点 + 指定类型的记录（列表与 Tab 计数共用）
+  ///
+  /// 传入 provider 实例而非在内部 `context.read`，保证 build 里 watch 到的
+  /// 与过滤用的是同一份数据（Provider 更新时不会出现"计数旧、列表新"）。
+  List<BrowseRecord> _filtered(
+    HistoryProvider history,
+    SettingsProvider settings,
+    String type,
+  ) {
+    final source = type.isEmpty ? history.getAll() : history.getByType(type);
+    return filterBrowseRecords(
+      source,
+      _query,
+      titleOf: (r) => r.displayTitle(_titleTemplateFor(settings, r.type)),
+    );
   }
 
   String _typeForIndex(int index) {
@@ -82,7 +107,15 @@ class _HistoryPageState extends State<HistoryPage>
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    // watch 两个 Provider：记录增删与标题模板变化都要让计数/列表刷新
     final history = context.watch<HistoryProvider>();
+    final settings = context.watch<SettingsProvider>();
+
+    // 各 Tab 的计数按当前关键词过滤后统计（搜索时计数同步收窄）
+    final types = ['', 'thread', 'user', 'mythread', 'reply'];
+    final counts = [
+      for (final t in types) _filtered(history, settings, t).length,
+    ];
 
     return Scaffold(
       appBar: AppBar(
@@ -97,11 +130,8 @@ class _HistoryPageState extends State<HistoryPage>
             labelPadding: const EdgeInsets.symmetric(horizontal: 12),
             indicatorPadding: EdgeInsets.zero,
             tabs: [
-              Tab(text: '全部 (${history.totalCount})'),
-              Tab(text: '帖子 (${history.getByType('thread').length})'),
-              Tab(text: '用户 (${history.getByType('user').length})'),
-              Tab(text: '我的帖子 (${history.getByType('mythread').length})'),
-              Tab(text: '回复 (${history.getByType('reply').length})'),
+              for (var i = 0; i < _tabs.length; i++)
+                Tab(text: '${_tabs[i]} (${counts[i]})'),
             ],
             labelColor: Theme.of(context).colorScheme.onSurfaceVariant,
             unselectedLabelColor: cs.onSurfaceVariant,
@@ -121,14 +151,29 @@ class _HistoryPageState extends State<HistoryPage>
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _RecordList(type: '', onShowDetail: _showDetail),
-          _RecordList(type: 'thread', onShowDetail: _showDetail),
-          _RecordList(type: 'user', onShowDetail: _showDetail),
-          _RecordList(type: 'mythread', onShowDetail: _showDetail),
-          _RecordList(type: 'reply', onShowDetail: _showDetail),
+          FilterSearchField(
+            controller: _searchController,
+            query: _query,
+            hint: '搜索标题、作者、ID…',
+            onChanged: (v) => setState(() => _query = v),
+          ),
+          if (_query.isNotEmpty)
+            _SearchSummary(matched: counts[0], total: history.totalCount),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                for (final type in ['', 'thread', 'user', 'mythread', 'reply'])
+                  _RecordList(
+                    type: type,
+                    query: _query,
+                    onShowDetail: _showDetail,
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -191,7 +236,7 @@ class _RecordDetailSheet extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               children: [
                 _infoRow(context, '标题', title),
-                _infoRow(context, '类型', _RecordList._typeLabel(record.type)),
+                _infoRow(context, '类型', record.typeLabel),
                 _infoRow(context, '路由', record.routePath),
                 _infoRow(context, 'ID', record.id),
                 _infoRow(context, '时间', formatDateTimeFull(record.timestamp)),
@@ -274,13 +319,44 @@ class _RecordDetailSheet extends StatelessWidget {
   }
 }
 
+// ==================== 搜索摘要 ====================
+
+/// 搜索时显示"命中 N / 共 M 条"，让用户知道是过滤了还是本来就没记录
+class _SearchSummary extends StatelessWidget {
+  final int matched;
+  final int total;
+  const _SearchSummary({required this.matched, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          '命中 $matched / 共 $total 条',
+          style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}
+
 // ==================== 记录列表 ====================
 
-/// 记录列表（点击查看详情）
+/// 记录列表（本地关键词过滤后展示，点击查看详情）
 class _RecordList extends StatelessWidget {
   final String type;
+
+  /// 当前搜索关键词，空串表示不过滤
+  final String query;
   final void Function(BrowseRecord) onShowDetail;
-  const _RecordList({required this.type, required this.onShowDetail});
+  const _RecordList({
+    required this.type,
+    required this.query,
+    required this.onShowDetail,
+  });
 
   static IconData _typeIcon(String t) => switch (t) {
     'thread' => Icons.article_outlined,
@@ -290,22 +366,23 @@ class _RecordList extends StatelessWidget {
     _ => Icons.history,
   };
 
-  static String _typeLabel(String t) => switch (t) {
-    'thread' => '帖子',
-    'user' => '用户',
-    'mythread' => '我的帖子',
-    'reply' => '回复',
-    _ => t,
-  };
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final history = context.watch<HistoryProvider>();
-    final records = type.isEmpty ? history.getAll() : history.getByType(type);
+    final settings = context.watch<SettingsProvider>();
+    final source = type.isEmpty ? history.getAll() : history.getByType(type);
+    final records = filterBrowseRecords(
+      source,
+      query,
+      titleOf: (r) => r.displayTitle(_titleTemplateFor(settings, r.type)),
+    );
 
     if (records.isEmpty) {
-      return const EmptyView(icon: Icons.history, text: '暂无浏览记录');
+      // 区分"本来就没记录"与"关键词没命中"
+      return query.isEmpty
+          ? const EmptyView(icon: Icons.history, text: '暂无浏览记录')
+          : const EmptyView(icon: Icons.search_off, text: '未找到匹配的浏览记录');
     }
 
     return ListView.separated(
@@ -342,7 +419,7 @@ class _RecordList extends StatelessWidget {
                   borderRadius: BorderRadius.circular(3),
                 ),
                 child: Text(
-                  _typeLabel(record.type),
+                  record.typeLabel,
                   style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
                 ),
               ),

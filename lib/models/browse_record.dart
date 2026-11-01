@@ -76,6 +76,15 @@ class BrowseRecord {
     return h.isEmpty || h == siteHost;
   }
 
+  /// 类型的中文名（列表角标、详情弹窗、搜索匹配共用同一份文案）
+  String get typeLabel => switch (type) {
+    'thread' => '帖子',
+    'user' => '用户',
+    'mythread' => '我的帖子',
+    'reply' => '回复',
+    _ => type,
+  };
+
   /// 根据模板渲染标题
   ///
   /// 可用占位符：
@@ -84,13 +93,7 @@ class BrowseRecord {
   /// 找不到的占位符保留原样。
   String displayTitle(String template) {
     final allInfo = <String, String>{
-      'typeLabel': switch (type) {
-        'thread' => '帖子',
-        'user' => '用户',
-        'mythread' => '我的帖子',
-        'reply' => '回复',
-        _ => type,
-      },
+      'typeLabel': typeLabel,
       for (final e in info.entries) e.key: e.value?.toString() ?? '',
     };
     return template.replaceAllMapped(RegExp(r'\{(\w+)\}'), (m) {
