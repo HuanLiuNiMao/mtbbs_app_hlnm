@@ -32,10 +32,10 @@ import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';
 import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 
-/// 关于页 — 应用标识、作者、相关链接、版本信息与特别鸣谢。
+/// 关于页 — 应用标识、作者、相关链接与版本信息。
 ///
-/// 鸣谢名单来自 `assets/config/thanks.json`，改内容不需要动代码；
 /// 作者资料按 [authorUid] 从站点动态获取（首次取到后持久化，之后只读缓存）。
+/// 鸣谢名单已迁到 `assets/config/credits.json`，由致谢二级页展示，本页只留入口。
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key, this.showAppBar = true});
 
