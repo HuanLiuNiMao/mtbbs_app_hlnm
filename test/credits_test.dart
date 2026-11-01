@@ -33,6 +33,19 @@ void main() {
     final titles = sections.map((s) => s.title).toList();
     // 至少包含「项目与上游」和两组技术类分组
     expect(titles.first, '项目与上游');
-    expect(titles.length, greaterThanOrEqualTo(4), reason: '致谢分组过少，技术栈覆盖不足');
+    expect(titles.length, greaterThanOrEqualTo(5), reason: '致谢分组过少，技术栈覆盖不足');
+    // 论坛鸣谢已从关于页合并进本名单，必须在
+    expect(titles, contains('论坛鸣谢'), reason: '论坛鸣谢分组缺失');
+  });
+
+  test('论坛鸣谢条目带 uid 与论坛帖子链接（可渲染头像、可点击打开）', () async {
+    final sections = await Credits.load();
+    final thanks = sections.firstWhere((s) => s.title == '论坛鸣谢');
+    expect(thanks.entries, isNotEmpty);
+    for (final e in thanks.entries) {
+      expect(e.uid, isNotEmpty, reason: '${e.name} 缺少 uid，头像无法渲染');
+      expect(e.siteHost, contains('binmt.cc'));
+      expect(e.link, contains('thread-'), reason: '${e.name} 的链接不是论坛帖子');
+    }
   });
 }

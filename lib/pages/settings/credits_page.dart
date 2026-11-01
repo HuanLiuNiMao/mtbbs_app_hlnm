@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mtbbs/core/utils/clipboard_helper.dart';
+import 'package:mtbbs/core/utils/url_router.dart';
 import 'package:mtbbs/models/credits.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';
@@ -89,9 +91,12 @@ class _CreditsPageState extends State<CreditsPage> {
   }
 
   /// 单个条目：左侧可选头像，中间名称 + 说明，右侧复制图标
+  ///
+  /// 点击行为分两种：带 `uid` 的论坛鸣谢条目（link 是论坛帖子）直接打开链接；
+  /// 其余技术栈条目（link 是仓库地址）复制地址，方便粘到浏览器或 issue 里。
   Widget _entryTile(ColorScheme cs, CreditEntry entry) {
     return InkWell(
-      onTap: () => _copyLink(entry),
+      onTap: () => entry.hasAvatar ? _openLink(entry) : _copyLink(entry),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -146,11 +151,22 @@ class _CreditsPageState extends State<CreditsPage> {
               ),
             ),
             const SizedBox(width: 8),
-            Icon(Icons.copy, size: 16, color: cs.outline),
+            Icon(
+              entry.hasAvatar ? Icons.open_in_new : Icons.copy,
+              size: 16,
+              color: cs.outline,
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// 论坛鸣谢条目：按 URL 路由打开（站内帖子直接进 App，否则交给浏览器）
+  void _openLink(CreditEntry entry) {
+    if (entry.link.isEmpty) return;
+    final target = UrlRouter.resolveTarget(entry.link);
+    if (target != null) context.push(target);
   }
 
   /// 点击条目：复制该项目的仓库/官网链接

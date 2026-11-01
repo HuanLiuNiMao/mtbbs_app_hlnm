@@ -147,24 +147,132 @@ jobs:
             done
           fi
 
-      - name: 重命名
+      - name: 重命名与签名校验
         shell: bash
+        env:
+          # 与「构建 APK」步骤保持同一套语义：signed / unsigned / both（默认）
+          SIGN_MODE: ${{ github.event.inputs.sign_mode || 'both' }}
         run: |
           set -euo pipefail
-          # 有签名产物
-          for file in build/app/outputs/flutter-apk/app-*-release.apk; do
-            [ -e "$file" ] || continue
-            abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
-            mv "$file" "MTBBS_android_${{ env.MTBBS_VERSION }}_${abi}.apk"
-          done
-          # 未签名产物：加 _unsigned 后缀，与签名包区分（both 模式下两者都在）
-          if [ -d build/unsigned ]; then
-            for file in build/unsigned/app-*-release.apk; do
-              [ -e "$file" ] || continue
-              abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
-              mv "$file" "MTBBS_android_${{ env.MTBBS_VERSION }}_${abi}_unsigned.apk"
+          # ------------------------------------------------------------------
+          # 为什么需要这一步
+          # ------------------------------------------------------------------
+          # AGP 在 buildType 未配置 signingConfig 时产出的确实是「未签名 APK」，
+          # 但打包流程仍可能残留两类结构，让第三方工具（MT 管理器等）误报
+          # 「有 v2 签名」：
+          #   1. META-INF/*.SF、*.RSA、*.DSA、*.EC —— v1(JAR) 签名文件；
+          #   2. APK Signing Block（魔数 "APK Sig Block 42"）—— v2/v3 签名块，
+          #      未签名时可能是空占位块。
+          #
+          # apksigner verify 是唯一权威判据：只有存在**真实签名者**才返回 0，
+          # 空占位块一律 DOES NOT VERIFY。所以本步骤以它为准：
+          #   签名包   → 必须 verify 通过，否则 fail（绝不发布坏包）
+          #   未签名包 → 必须 verify 不通过；若残留痕迹，剥离后重新对齐再校验
+          #
+          # 注意：不要用 `zip` 重打包。Python 标准库 zipfile 只输出
+          # 「本地头 + 数据 + 中央目录 + EOCD」，天然不会写回 APK Signing Block，
+          # 比 zip 更彻底；实现见 scripts/strip_apk_signature.py。
+          # ------------------------------------------------------------------
+
+          BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)"
+          [ -n "$BUILD_TOOLS" ] || { echo "::error::未找到 build-tools"; exit 1; }
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          echo "sign_mode = $SIGN_MODE"
+          echo "build-tools = $BUILD_TOOLS"
+
+          is_signed() { "$APKSIGNER" verify "$1" >/dev/null 2>&1; }
+
+          # 彻底剥离签名痕迹，并重新做 4 字节对齐（-p 保证 .so 页对齐）
+          strip_signature() {
+            local apk="$1"
+            # 注意：不能只用 `[ -x ]` 判断 zipalign 可用——二进制架构不匹配或缺
+            # 依赖时文件是可执行的但跑不起来（退出码 126/127）。必须实际探测。
+            # 探测放在函数内部：只有真需要剥离的包才依赖 zipalign，
+            # 纯签名包的构建不受影响。
+            if ! "$ZIPALIGN" -h >/dev/null 2>&1; then
+              echo "::error::zipalign 无法执行（$ZIPALIGN）。剥离签名后必须重新对齐，否则 .so 页对齐失效、APK 可能无法安装。"
+              exit 1
+            fi
+            echo "  剥离签名痕迹: $apk"
+            python3 scripts/strip_apk_signature.py "$apk"
+            # Python zipfile 重打包会破坏 4 字节对齐，必须重新 zipalign。
+            "$ZIPALIGN" -p -f 4 "$apk" "$apk.aligned"
+            mv -f "$apk.aligned" "$apk"
+            if ! "$ZIPALIGN" -c -p 4 "$apk" >/dev/null 2>&1; then
+              echo "::error::$apk 重新对齐后仍不满足 4 字节对齐"
+              exit 1
+            fi
+            echo "  已重新对齐并通过 zipalign -c 校验"
+          }
+
+          # 列出指定目录下的 APK（目录不存在时静默跳过）
+          list_apks() {
+            local d
+            for d in "$@"; do
+              [ -d "$d" ] || continue
+              find "$d" -maxdepth 1 -type f -name 'app-*-release.apk' 2>/dev/null
             done
+          }
+
+          abi_of() { echo "$1" | sed -E 's|.*app-(.*)-release\.apk|\1|'; }
+
+          # 按 sign_mode 决定「哪些目录应含签名包、哪些应含未签名包」。
+          # both 模式下构建步骤已把签名包挪回 flutter-apk、未签名包留在 build/unsigned。
+          case "$SIGN_MODE" in
+            signed)   SIGNED_DIRS=(build/app/outputs/flutter-apk) ;;
+            unsigned) UNSIGNED_DIRS=(build/app/outputs/flutter-apk) ;;
+            *)        SIGNED_DIRS=(build/app/outputs/flutter-apk build/signed)
+                      UNSIGNED_DIRS=(build/unsigned) ;;
+          esac
+
+          produced=0
+
+          # ---- 签名包：必须真的签了名 ----
+          for dir in "${SIGNED_DIRS[@]}"; do
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              abi="$(abi_of "$file")"
+              target="MTBBS_android_${{ env.MTBBS_VERSION }}_${abi}.apk"
+              mv -f "$file" "$target"
+              if is_signed "$target"; then
+                echo "OK  签名包 $target（abi=$abi）"
+                produced=$((produced + 1))
+              else
+                echo "::error::$target 应有签名，但 apksigner verify 未通过（构建出的包不可用于发布）"
+                exit 1
+              fi
+            done < <(list_apks "$dir")
+          done
+
+          # ---- 未签名包：必须真的没有签名 ----
+          for dir in "${UNSIGNED_DIRS[@]:-}"; do
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              abi="$(abi_of "$file")"
+              target="MTBBS_android_${{ env.MTBBS_VERSION }}_${abi}_unsigned.apk"
+              mv -f "$file" "$target"
+
+              if is_signed "$target"; then
+                echo "检测到 $target 残留签名/占位块，剥离并重新对齐"
+                strip_signature "$target"
+              fi
+
+              if is_signed "$target"; then
+                echo "::error::$target 剥离后仍能通过 apksigner verify，未签名包不干净"
+                exit 1
+              fi
+              echo "OK  未签名包 $target（apksigner verify 确认无签名）"
+              produced=$((produced + 1))
+            done < <(list_apks "$dir")
+          done
+
+          if [ "$produced" -eq 0 ]; then
+            echo "::error::未产出任何 APK（sign_mode=$SIGN_MODE）"
+            exit 1
           fi
+          echo "共校验 $produced 个 APK，sign_mode=$SIGN_MODE"
+          ls -la MTBBS_android_*.apk
 
       - name: 输出产物摘要与 Hash（溯源）
         shell: pwsh

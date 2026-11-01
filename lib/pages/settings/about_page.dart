@@ -80,6 +80,11 @@ class AboutPage extends StatefulWidget {
   /// 开源仓库（构建注入的更新源优先，未注入回落上游）
   static String get repoUrl => BuildConfig.repoUrl;
 
+  /// 上游原作者仓库（固定值，不随构建注入的更新源变化）
+  ///
+  /// 关于页「相关链接」里与 [repoUrl] 并列展示，用于对照上游改动或向上游反馈。
+  static const String upstreamRepoUrl = 'https://github.com/qcxs/mtbbs_app';
+
   /// 应用介绍帖
   static const String introUrl = 'https://bbs.binmt.cc/thread-169295-1-1.html';
 
@@ -91,9 +96,6 @@ class AboutPage extends StatefulWidget {
 }
 
 class _AboutPageState extends State<AboutPage> {
-  /// 只加载一次，避免主题切换等 rebuild 重复读 assets
-  late final Future<List<SpecialThanks>> _thanks = SpecialThanks.load();
-
   /// 应用图标的累计旋转圈数；点一下随机叠加，交给 AnimatedRotation 平滑过渡
   double _turns = 0;
   final math.Random _random = math.Random();
@@ -129,10 +131,17 @@ class _AboutPageState extends State<AboutPage> {
   }
 
   /// 签名展示文本：签名是 BBCode，这里去掉标记只留纯文本（卡片仅两行）
-  String get _authorSignatureText {
-    final a = _author;
-    if (a == null) return '';
-    return a.signature.replaceAll(RegExp(r'\[[^\[\]]*\]'), '').trim();
+  String get _authorSignatureText => _signatureTextOf(_author);
+
+  /// 维护者签名展示文本（与原作者同规则）
+  String get _maintainerSignatureText => _signatureTextOf(_maintainer);
+
+  /// 把 [UserProfile.signature] 的 BBCode 标记剥成纯文本
+  ///
+  /// 两位作者共用同一套清洗规则，避免出现「一个有签名、一个没有」的显示差异。
+  String _signatureTextOf(UserProfile? profile) {
+    if (profile == null) return '';
+    return profile.signature.replaceAll(RegExp(r'\[[^\[\]]*\]'), '').trim();
   }
 
   @override
@@ -306,6 +315,27 @@ class _AboutPageState extends State<AboutPage> {
               ),
             ),
             const Divider(height: 1, indent: 56),
+            // 上游原作者仓库：与自己的仓库并列展示，方便对照 diff / 反馈问题
+            _linkTile(
+              icon: Icons.account_tree_outlined,
+              title: '上游仓库（原作者）',
+              subtitle: AboutPage.upstreamRepoUrl,
+              onTap: () => _openLink(AboutPage.upstreamRepoUrl),
+              trailing: IconButton(
+                icon: const Icon(Icons.copy, size: 18),
+                tooltip: '复制地址',
+                onPressed: () async {
+                  await ClipboardHelper.write(AboutPage.upstreamRepoUrl);
+                  if (context.mounted) {
+                    showToast(
+                      '上游仓库地址已复制',
+                      duration: const Duration(seconds: 1),
+                    );
+                  }
+                },
+              ),
+            ),
+            const Divider(height: 1, indent: 56),
             _linkTile(
               icon: Icons.description_outlined,
               title: '开源许可',
@@ -371,21 +401,10 @@ class _AboutPageState extends State<AboutPage> {
             _linkTile(
               icon: Icons.favorite_outline,
               title: '致谢名单',
-              subtitle: '上游作者、技术栈与底层开源依赖',
+              subtitle: '上游作者、论坛鸣谢、技术栈与底层开源依赖',
               onTap: () => context.push('/settings/credits'),
             ),
           ]),
-
-          // 论坛鸣谢（帖主/教程作者）仍留在关于页：条目少且带帖子标题，
-          // 点开是论坛帖子，与「致谢名单」里点开复制仓库地址的语义不同。
-          FutureBuilder<List<SpecialThanks>>(
-            future: _thanks,
-            builder: (context, snapshot) {
-              final entries = snapshot.data ?? const <SpecialThanks>[];
-              if (entries.isEmpty) return const SizedBox.shrink();
-              return _thanksSection(cs, entries);
-            },
-          ),
         ],
       ),
     );
@@ -595,7 +614,7 @@ class _AboutPageState extends State<AboutPage> {
     );
   }
 
-  /// 作者卡片：原作者与维护者两个头像并列，各自点击进入自己的论坛个人空间
+  /// 作者卡片：维护者（二改作者）在左、上游原作者在右，各自点击进入个人空间
   ///
   /// 资料来自 [_author] / [_maintainer]（按 UID 动态获取并持久化）；
   /// 未取到时只显示头像与占位。
@@ -607,16 +626,19 @@ class _AboutPageState extends State<AboutPage> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         child: Row(
           children: [
-            // 原作者（上游）：头像 + 昵称 + 等级
+            // 本 fork 维护者（二改作者）：头像 + 昵称 + 等级 + 签名（固定 MT 论坛）
             Expanded(
               child: _personBlock(
                 cs,
-                uid: AboutPage.authorUid,
-                nickname: _author?.nickname ?? '',
-                level: _authorLevelText,
-                signature: _authorSignatureText,
-                siteHost: AboutPage.authorSiteHost,
-                onTap: () => _openLink(_authorSpaceUrl),
+                uid: AboutPage.maintainerUid,
+                nickname: _maintainer?.nickname.isNotEmpty == true
+                    ? _maintainer!.nickname
+                    : AboutPage.maintainerName,
+                level: _maintainerLevelText,
+                role: '二改作者',
+                signature: _maintainerSignatureText,
+                siteHost: SpecialThanks.defaultSiteHost,
+                onTap: () => _openLink(AboutPage.maintainerSpaceUrl),
               ),
             ),
             // 竖分隔线，两个头像视觉上"并排"但不粘连
@@ -626,18 +648,17 @@ class _AboutPageState extends State<AboutPage> {
               color: cs.outlineVariant,
               margin: const EdgeInsets.symmetric(horizontal: 4),
             ),
-            // 本 fork 维护者：头像 + 昵称（固定 MT 论坛）
+            // 上游原作者：头像 + 昵称 + 等级 + 签名
             Expanded(
               child: _personBlock(
                 cs,
-                uid: AboutPage.maintainerUid,
-                nickname: _maintainer?.nickname.isNotEmpty == true
-                    ? _maintainer!.nickname
-                    : AboutPage.maintainerName,
-                level: _maintainerLevelText,
-                signature: '',
-                siteHost: SpecialThanks.defaultSiteHost,
-                onTap: () => _openLink(AboutPage.maintainerSpaceUrl),
+                uid: AboutPage.authorUid,
+                nickname: _author?.nickname ?? '',
+                level: _authorLevelText,
+                role: '上游作者',
+                signature: _authorSignatureText,
+                siteHost: AboutPage.authorSiteHost,
+                onTap: () => _openLink(_authorSpaceUrl),
               ),
             ),
           ],
@@ -657,12 +678,13 @@ class _AboutPageState extends State<AboutPage> {
     return parts.isNotEmpty ? parts.join(' ') : a.userGroup;
   }
 
-  /// 单个作者块：头像在上、昵称/等级/站点标识在下，整块可点
+  /// 单个作者块：头像在上，昵称/角色/等级/站点标识/签名在下，整块可点
   Widget _personBlock(
     ColorScheme cs, {
     required String uid,
     required String nickname,
     required String level,
+    required String role,
     required String signature,
     required String siteHost,
     required VoidCallback onTap,
@@ -690,6 +712,25 @@ class _AboutPageState extends State<AboutPage> {
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
+            // 角色标签：区分「二改作者」与「上游作者」，用强调色以便一眼看出
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: cs.primaryContainer,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                role,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onPrimaryContainer,
+                ),
+              ),
+            ),
             if (level.isNotEmpty) ...[
               const SizedBox(height: 4),
               Container(
@@ -716,102 +757,12 @@ class _AboutPageState extends State<AboutPage> {
               const SizedBox(height: 4),
               Text(
                 signature,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               ),
             ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 特别鸣谢：左侧头像 + 用户名，右侧上标题下备注，整行点击打开链接
-  Widget _thanksSection(ColorScheme cs, List<SpecialThanks> entries) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('特别鸣谢'),
-        _card([
-          for (var i = 0; i < entries.length; i++) ...[
-            if (i > 0) const Divider(height: 1, indent: 68),
-            _thanksTile(cs, entries[i]),
-          ],
-        ]),
-      ],
-    );
-  }
-
-  Widget _thanksTile(ColorScheme cs, SpecialThanks entry) {
-    return InkWell(
-      onTap: () => _openLink(entry.url),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            // 左侧：头像（点击整行时冒泡到 InkWell，故头像自身不接管点击）
-            UserAvatar(
-              uid: entry.uid,
-              nickname: entry.username,
-              radius: 20,
-              siteHost: entry.siteHost,
-              tapAction: AvatarTapAction.none,
-            ),
-            const SizedBox(width: 12),
-            // 左侧：用户名 + 所属站点标识
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    entry.username,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  _siteBadge(cs, entry.siteHost),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            // 右侧：上标题、下备注
-            Expanded(
-              flex: 4,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    entry.title,
-                    maxLines: 2,
-                    textAlign: TextAlign.end,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, color: cs.onSurface),
-                  ),
-                  if (entry.note.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      entry.note,
-                      maxLines: 2,
-                      textAlign: TextAlign.end,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
           ],
         ),
       ),
