@@ -186,12 +186,14 @@ jobs:
           # 彻底剥离签名痕迹，并重新做 4 字节对齐（-p 保证 .so 页对齐）
           strip_signature() {
             local apk="$1"
-            # 注意：不能只用 `[ -x ]` 判断 zipalign 可用——二进制架构不匹配或缺
-            # 依赖时文件是可执行的但跑不起来（退出码 126/127）。必须实际探测。
-            # 探测放在函数内部：只有真需要剥离的包才依赖 zipalign，
-            # 纯签名包的构建不受影响。
-            if ! "$ZIPALIGN" -h >/dev/null 2>&1; then
-              echo "::error::zipalign 无法执行（$ZIPALIGN）。剥离签名后必须重新对齐，否则 .so 页对齐失效、APK 可能无法安装。"
+            # 探测 zipalign 是否真的能执行：不能只看 `[ -x ]`（架构不匹配时文件有
+            # 执行位但跑不起来），也不能看某个参数是否返回 0（zipalign 不认 -h，
+            # build-tools 37.0.0 上 `zipalign -h` 返回 1，会被误判成"无法执行"）。
+            # 唯一可靠的判据是退出码 126（不可执行）/ 127（找不到命令）。
+            local rc=0
+            "$ZIPALIGN" >/dev/null 2>&1 || rc=$?
+            if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
+              echo "::error::zipalign 无法执行（$ZIPALIGN，退出码 $rc）。剥离签名后必须重新对齐，否则 .so 页对齐失效、APK 可能无法安装。"
               exit 1
             fi
             echo "  剥离签名痕迹: $apk"

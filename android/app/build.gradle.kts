@@ -130,7 +130,13 @@ android {
                 // 彻底绕开"Android 不允许降级安装"；固定 debug 签名（独立应用，签名不敏感，仅临时测试）
                 applicationIdSuffix = ".beta"
                 manifestPlaceholders.put("appName", "MT论坛 beta")
-                signingConfig = signingConfigs.getByName("debug")
+                // UNSIGNED=true 时同样必须不签名，否则 beta 分支会把 UNSIGNED 吞掉，
+                // 产出名为 unsigned 实为 debug 签名的包（apksigner verify 能通过）。
+                if (isUnsigned) {
+                    // 不签名构建
+                } else {
+                    signingConfig = signingConfigs.getByName("debug")
+                }
             } else {
                 // 有正式签名用正式签名；否则用 MT 内置签名（AOSP 公开 testkey），
                 // 保证不同来源的包签名一致、可覆盖安装（本地自测/CI 未配 Secrets 均不报错）
