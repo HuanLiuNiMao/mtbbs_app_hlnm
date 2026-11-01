@@ -25,6 +25,32 @@
       ]
     },
     {
+      "title": "特别鸣谢",
+      "entries": [
+        {
+          "name": "笑",
+          "desc": "【论坛教程】mt论坛语法总汇（bbcode）— 一个不错的 bbcode 整合帖，适合测试渲染",
+          "link": "https://bbs.binmt.cc/thread-161119-1-1.html",
+          "uid": "139510",
+          "site": "bbs.binmt.cc"
+        },
+        {
+          "name": "小白·马",
+          "desc": "论坛 UBB 代码分享 — MT论坛 Lite 作者",
+          "link": "https://bbs.binmt.cc/thread-79809-1-1.html",
+          "uid": "51423",
+          "site": "bbs.binmt.cc"
+        },
+        {
+          "name": "JiGuro",
+          "desc": "【多栈实战】某黑产软件全链路逆向实录（中）— 超大帖子，适合测试渲染",
+          "link": "https://bbs.binmt.cc/thread-167438-1-1.html",
+          "uid": "150978",
+          "site": "bbs.binmt.cc"
+        }
+      ]
+    },
+    {
       "title": "语言与框架",
       "entries": [
         {
@@ -186,32 +212,6 @@
           "name": "Android / Windows 原生层",
           "desc": "Kotlin（MainActivity、MCP 前台服务、桌面快捷方式）与 C++ runner；构建经 Gradle + AGP 与 Inno Setup 打包",
           "link": "https://github.com/HuanLiuNiMao/mtbbs_app_hlnm"
-        }
-      ]
-    },
-    {
-      "title": "论坛鸣谢",
-      "entries": [
-        {
-          "name": "笑",
-          "desc": "【论坛教程】mt论坛语法总汇（bbcode）— 一个不错的 bbcode 整合帖，适合测试渲染",
-          "link": "https://bbs.binmt.cc/thread-161119-1-1.html",
-          "uid": "139510",
-          "site": "bbs.binmt.cc"
-        },
-        {
-          "name": "小白·马",
-          "desc": "论坛 UBB 代码分享 — MT论坛 Lite 作者",
-          "link": "https://bbs.binmt.cc/thread-79809-1-1.html",
-          "uid": "51423",
-          "site": "bbs.binmt.cc"
-        },
-        {
-          "name": "JiGuro",
-          "desc": "【多栈实战】某黑产软件全链路逆向实录（中）— 超大帖子，适合测试渲染",
-          "link": "https://bbs.binmt.cc/thread-167438-1-1.html",
-          "uid": "150978",
-          "site": "bbs.binmt.cc"
         }
       ]
     }

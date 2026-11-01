@@ -8,9 +8,9 @@ import 'package:mtbbs/widgets/common/user_avatar.dart';
 
 /// 致谢名单二级页 — 从关于页「致谢名单」进入。
 ///
-/// 内容全部来自 `assets/config/credits.json`：分组（项目与上游 / 语言与框架 /
-/// 架构与状态 / 网络与解析 / 渲染与媒体 / 平台与工具链），条目点击即复制
-/// 对应仓库链接。带 `uid` 的条目（真实论坛用户）额外显示头像。
+/// 内容全部来自 `assets/config/credits.json`：分组（项目与上游 / 特别鸣谢 /
+/// 语言与框架 / 架构与状态 / 网络与解析 / 渲染与媒体 / 平台与工具链），条目
+/// 点击即复制对应仓库链接。带 `uid` 的条目（真实论坛用户）额外显示头像。
 class CreditsPage extends StatefulWidget {
   const CreditsPage({super.key});
 
@@ -92,7 +92,7 @@ class _CreditsPageState extends State<CreditsPage> {
 
   /// 单个条目：左侧可选头像，中间名称 + 说明，右侧复制图标
   ///
-  /// 点击行为分两种：带 `uid` 的论坛鸣谢条目（link 是论坛帖子）直接打开链接；
+  /// 点击行为分两种：带 `uid` 的特别鸣谢条目（link 是论坛帖子）直接打开链接；
   /// 其余技术栈条目（link 是仓库地址）复制地址，方便粘到浏览器或 issue 里。
   Widget _entryTile(ColorScheme cs, CreditEntry entry) {
     return InkWell(
@@ -162,7 +162,7 @@ class _CreditsPageState extends State<CreditsPage> {
     );
   }
 
-  /// 论坛鸣谢条目：按 URL 路由打开（站内帖子直接进 App，否则交给浏览器）
+  /// 特别鸣谢条目：按 URL 路由打开（站内帖子直接进 App，否则交给浏览器）
   void _openLink(CreditEntry entry) {
     if (entry.link.isEmpty) return;
     final target = UrlRouter.resolveTarget(entry.link);

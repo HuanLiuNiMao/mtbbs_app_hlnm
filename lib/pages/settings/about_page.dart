@@ -401,7 +401,7 @@ class _AboutPageState extends State<AboutPage> {
             _linkTile(
               icon: Icons.favorite_outline,
               title: '致谢名单',
-              subtitle: '上游作者、论坛鸣谢、技术栈与底层开源依赖',
+              subtitle: '上游作者、特别鸣谢、技术栈与底层开源依赖',
               onTap: () => context.push('/settings/credits'),
             ),
           ]),
