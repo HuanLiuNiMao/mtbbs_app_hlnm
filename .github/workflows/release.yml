@@ -36,10 +36,16 @@ on:
           - signed
           - unsigned
 
+  # 允许从命令行/脚本触发（curl / gh / CI 互相调用），方便本地调试与自动化。
+  # 载荷字段与 workflow_dispatch 的 inputs 同名：tag / build_android / build_windows / sign_mode。
+  # 网页按钮走 workflow_dispatch，行为不受影响。
+  repository_dispatch:
+    types: [release]
+
 jobs:
   android:
     name: Android APK
-    if: ${{ github.event.inputs.build_android == 'true' }}
+    if: ${{ (github.event.inputs.build_android || github.event.client_payload.build_android) == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -66,7 +72,7 @@ jobs:
       - name: 生成版本信息
         shell: pwsh
         env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_TAG: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:INPUT_TAG)) {
             scripts/version.ps1 android -Beta -Repo ${{ github.repository }} -Channel beta
@@ -111,7 +117,7 @@ jobs:
           # beta 形态：gradle 按 dart-define 切成 .beta 独立应用（独立 appId/应用名/签名）
           BETA_FLAG: ${{ env.MTBBS_BETA == 'true' && '--dart-define=BETA=true' || '' }}
           # 签名三选项（sign_mode 输入）：signed / unsigned / both（默认）
-          SIGN_MODE: ${{ github.event.inputs.sign_mode || 'both' }}
+          SIGN_MODE: ${{ github.event.inputs.sign_mode || github.event.client_payload.sign_mode || 'both' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -151,7 +157,7 @@ jobs:
         shell: bash
         env:
           # 与「构建 APK」步骤保持同一套语义：signed / unsigned / both（默认）
-          SIGN_MODE: ${{ github.event.inputs.sign_mode || 'both' }}
+          SIGN_MODE: ${{ github.event.inputs.sign_mode || github.event.client_payload.sign_mode || 'both' }}
         run: |
           set -euo pipefail
           # ------------------------------------------------------------------
@@ -281,11 +287,11 @@ jobs:
         run: scripts/artifact_summary.ps1 -Title 'Android APK' -Patterns 'MTBBS_android_*.apk'
 
       - name: 发布到 GitHub Release
-        if: ${{ github.event.inputs.tag != '' }}
+        if: ${{ (github.event.inputs.tag || github.event.client_payload.tag) != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag }}
-          name: ${{ github.event.inputs.tag }}
+          tag_name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
+          name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
           files: MTBBS_android_*.apk
 
       - name: 上传构建产物
@@ -298,7 +304,7 @@ jobs:
 
   windows:
     name: Windows 安装包
-    if: ${{ github.event.inputs.build_windows == 'true' }}
+    if: ${{ (github.event.inputs.build_windows || github.event.client_payload.build_windows) == 'true' }}
     # 工具链对齐：插件 flutter_inappwebview 6.x 官方支持基线为 VS2022（MSVC 14.4x）；
     # windows-2022 镜像 = VS2022 17.14 + SDK 10.0.22621 + 预装 Inno Setup 6.7.1。
     # 不要用 windows-latest（已切到 VS2026/MSVC 14.51，会触发 STL1011 硬错误）。
@@ -338,7 +344,7 @@ jobs:
       - name: 生成版本信息
         shell: pwsh
         env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_TAG: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:INPUT_TAG)) {
             scripts/version.ps1 -Beta -Repo ${{ github.repository }} -Channel beta
@@ -372,11 +378,11 @@ jobs:
         run: scripts/artifact_summary.ps1 -Title 'Windows 安装包' -Patterns 'MTBBS_windows_*.exe','MTBBS_windows_*.zip'
 
       - name: 发布到 GitHub Release
-        if: ${{ github.event.inputs.tag != '' }}
+        if: ${{ (github.event.inputs.tag || github.event.client_payload.tag) != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag }}
-          name: ${{ github.event.inputs.tag }}
+          tag_name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
+          name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
           files: |
             MTBBS_windows_*.exe
             MTBBS_windows_*.zip
