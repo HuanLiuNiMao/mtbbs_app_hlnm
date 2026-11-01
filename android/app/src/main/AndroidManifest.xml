@@ -76,6 +76,45 @@
             android:exported="false"
             android:stopWithTask="true"
             android:foregroundServiceType="dataSync"/>
+
+        <!-- 注入文件提供器（system SAF DocumentsProvider）：
+             让 MT 管理器 / 系统「文件」在**无需 ROOT** 的情况下浏览本应用私有目录，
+             便于排查数据库、Cookie、缓存等问题。使用说明见 docs/29。
+
+             两处刻意设计，改动前请先读 docs/29：
+             1. android:enabled="false"：默认**不注册**。provider 一旦常驻，任何能拉起
+                系统文件选择器的应用都能诱导用户点一下授权，而我们的私有目录里有
+                登录 Cookie。用户必须在「设置 → 存储与工具 → 注入文件提供器」里主动打开，
+                此时由 AppDataFilesBridge 调 setComponentEnabledSetting 启用
+                （DONT_KILL_APP，不杀进程）。
+             2. android:permission="android.permission.MANAGE_DOCUMENTS"：signature 级
+                权限，只有系统 DocumentsUI 持有。第三方不能直接 query 本 provider，
+                必须由用户在系统选择器里选中本应用后才拿到 URI 授权 —— 安全边界靠它，
+                不要为了"方便调试"去掉。
+             authorities 用 ${applicationId} 前缀，三个变体（正式/debug/beta）互不冲突。 -->
+        <provider
+            android:name=".AppDataFilesProvider"
+            android:authorities="${applicationId}.MTDataFilesProvider"
+            android:enabled="false"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+        <!-- 配套的空 Activity：provider 跑在本进程里，进程被系统回收后第三方查询会
+             拿到 "provider not found"，MT 在查询前会先尝试拉起这样一个 Activity。
+             不显示界面、立即 finish；excludeFromRecents + noHistory 保证不在最近
+             任务里留痕。与 provider 一起受上面的开关控制（同一个 enabled=false）。 -->
+        <activity
+            android:name=".AppDataFilesWakeUpActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="${applicationId}.AppDataFilesWakeUp" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

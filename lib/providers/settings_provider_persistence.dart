@@ -18,6 +18,9 @@ extension SettingsPersistence on SettingsProvider {
     AvatarRedirectStore.instance.cacheTtl = Duration(days: _avatarCacheDays);
     // 备份日志保留天数注入服务层（服务层不读 provider，避免循环依赖）
     applyBackupRuntimeConfig();
+    // 文件提供器（见 docs/29）：把原生组件状态对齐到设置值。异步、不阻塞启动；
+    // 走这里而不是只在设置页的 onChanged 里调，是为了让「导入设置」也能生效。
+    unawaited(AppDataFiles.sync(_docProviderEnabled));
   }
 
   Future<void> load() async {
@@ -170,6 +173,7 @@ extension SettingsPersistence on SettingsProvider {
     _medalCacheDays = a.storage.medalCacheDays;
     _threadCacheDays = a.storage.threadCacheDays.clamp(1, 365);
     _threadCacheEnabled = a.storage.threadCacheEnabled;
+    _docProviderEnabled = a.storage.docProviderEnabled;
     _threadCacheMaxVersions = a.storage.threadCacheMaxVersions.clamp(
       ThreadCacheService.minMaxVersions,
       ThreadCacheService.maxMaxVersions,
@@ -254,6 +258,7 @@ extension SettingsPersistence on SettingsProvider {
       threadCacheEnabled: _threadCacheEnabled,
       threadCacheMaxVersions: _threadCacheMaxVersions,
       threadCacheMaxKB: _threadCacheMaxKB,
+      docProviderEnabled: _docProviderEnabled,
     ),
     notice: NoticeSettings(
       badgeMode: _noticeBadgeMode.index,
@@ -437,6 +442,18 @@ extension SettingsPersistence on SettingsProvider {
   Future<void> setThreadCacheEnabled(bool enabled) async {
     _threadCacheEnabled = enabled;
     await _persistApp();
+    _notify();
+  }
+
+  /// 开关「注入文件提供器」（见 docs/29）。
+  ///
+  /// 这里只落设置；真正把原生组件启停掉在 `applyRuntimeConfig()` 里做，这样
+  /// 路径只有一条：无论用户从设置页改、还是从备份恢复覆盖了整个设置，都会经过它。
+  Future<void> setDocProviderEnabled(bool enabled) async {
+    if (_docProviderEnabled == enabled) return;
+    _docProviderEnabled = enabled;
+    await _persistApp();
+    applyRuntimeConfig();
     _notify();
   }
 

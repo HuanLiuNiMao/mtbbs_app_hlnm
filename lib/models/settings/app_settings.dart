@@ -411,6 +411,12 @@ class StorageSettings {
   final int threadCacheMaxVersions;
   final int threadCacheMaxKB;
 
+  /// 「注入文件提供器」开关（见 docs/29）。
+  ///
+  /// 默认 **false**：开启后本应用私有目录（含登录 Cookie）会通过系统 SAF 暴露给
+  /// 第三方文件管理器（如 MT 管理器），属于排障用途，不该默认开着。
+  final bool docProviderEnabled;
+
   const StorageSettings({
     required this.avatarCacheDays,
     required this.emojiCacheDays,
@@ -420,6 +426,7 @@ class StorageSettings {
     required this.threadCacheEnabled,
     required this.threadCacheMaxVersions,
     required this.threadCacheMaxKB,
+    required this.docProviderEnabled,
   });
 
   factory StorageSettings.defaults() {
@@ -434,6 +441,7 @@ class StorageSettings {
       threadCacheEnabled: true,
       threadCacheMaxVersions: 3,
       threadCacheMaxKB: thread.maxBytesPerThread ~/ 1024,
+      docProviderEnabled: false,
     );
   }
 
@@ -446,6 +454,7 @@ class StorageSettings {
     'threadCacheEnabled': threadCacheEnabled,
     'threadCacheMaxVersions': threadCacheMaxVersions,
     'threadCacheMaxKB': threadCacheMaxKB,
+    'docProviderEnabled': docProviderEnabled,
   };
 
   factory StorageSettings.fromMap(Map<String, dynamic> map) {
@@ -468,6 +477,8 @@ class StorageSettings {
           d.threadCacheMaxVersions,
       threadCacheMaxKB:
           (map['threadCacheMaxKB'] as num?)?.toInt() ?? d.threadCacheMaxKB,
+      docProviderEnabled:
+          map['docProviderEnabled'] as bool? ?? d.docProviderEnabled,
     );
   }
 }

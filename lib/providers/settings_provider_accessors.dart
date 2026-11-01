@@ -47,6 +47,9 @@ extension SettingsAccessors on SettingsProvider {
 
   /// 「返回键双击退出」开关（仅 Android 返回键生效）
   bool get doubleBackExit => _doubleBackExit;
+
+  /// 「注入文件提供器」开关（仅 Android 有意义，见 docs/29）
+  bool get docProviderEnabled => _docProviderEnabled;
   List<Site> get sites => _sites;
 
   Map<String, String> get shortcuts => Map.unmodifiable(_shortcuts);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mtbbs/core/app/app_data_files.dart';
 import 'package:mtbbs/pages/settings/models/settings_model.dart';
 import 'package:mtbbs/pages/settings/mt_image_manage_sheet.dart';
 import 'package:mtbbs/pages/settings/widgets/dialogs.dart';
@@ -33,6 +34,15 @@ List<SettingsModel> dataSettings() => [
     icon: Icons.photo_library,
     onTap: (ctx, s) => showMtImageManageSheet(ctx),
   ),
+  // 只有 Android 有 DocumentsProvider；其它平台直接不显示这一项
+  if (AppDataFiles.isSupported)
+    SwitchSetting(
+      title: '注入文件提供器',
+      subtitle: '让 MT 管理器等第三方免 ROOT 访问本应用的私有目录（含登录 Cookie，排障用，用完记得关）',
+      icon: Icons.folder_shared_outlined,
+      value: (s) => s.docProviderEnabled,
+      onChanged: (ctx, s, v) => s.setDocProviderEnabled(v),
+    ),
   NormalSetting(
     title: '通用错峰间隔',
     icon: Icons.motion_photos_on,

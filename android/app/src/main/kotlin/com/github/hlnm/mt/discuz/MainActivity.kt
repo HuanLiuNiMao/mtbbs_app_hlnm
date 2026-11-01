@@ -88,6 +88,10 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // 注入文件提供器开关（设置 → 存储与工具 →「注入文件提供器」，见 docs/29）
+        AppDataFilesBridge.register(flutterEngine.dartExecutor.binaryMessenger, this)
+
         channel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "mtbbs/max_screen_size",

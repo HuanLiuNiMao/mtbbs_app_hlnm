@@ -12,6 +12,7 @@ import 'package:mtbbs/services/thread_cache_service.dart';
 import 'package:mtbbs/models/managed_item.dart';
 import 'package:mtbbs/core/app/site_store.dart';
 import 'package:mtbbs/core/app/session_registry.dart';
+import 'package:mtbbs/core/app/app_data_files.dart';
 import 'package:mtbbs/core/app/avatar_url.dart';
 import 'package:mtbbs/core/app/avatar_redirect_store.dart';
 import 'package:mtbbs/core/app/default_config.dart';
@@ -119,6 +120,9 @@ class SettingsProvider extends ChangeNotifier {
   /// 单帖最大缓存大小（KB，默认取自 cache.json，当前 128 KB）
   int _threadCacheMaxKB =
       DefaultConfig.instance.threadCacheConfig.maxBytesPerThread ~/ 1024;
+
+  /// 「注入文件提供器」开关（默认关，见 docs/29）
+  bool _docProviderEnabled = false;
 
   /// 用户自定义站点列表（持久化）
   List<Site> _sites = [];
