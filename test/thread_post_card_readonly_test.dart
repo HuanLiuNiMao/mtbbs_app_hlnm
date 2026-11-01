@@ -68,4 +68,48 @@ void main() {
     expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
     expect(find.byType(PopupMenuButton<PostCardAction>), findsOneWidget);
   });
+
+  testWidgets('评论的更多菜单含「在浏览器中打开」', (tester) async {
+    await tester.pumpWidget(
+      harness(
+        const ThreadPostCard(
+          post: comment,
+          index: 0,
+          tid: '42',
+          currentUid: 'u1',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byType(PopupMenuButton<PostCardAction>));
+    await tester.pumpAndSettle();
+    expect(find.text('在浏览器中打开'), findsOneWidget);
+    expect(find.text('查看 BBCode'), findsOneWidget);
+  });
+
+  testWidgets('主帖的更多菜单不提供「在浏览器中打开」', (tester) async {
+    await tester.pumpWidget(
+      harness(
+        const ThreadPostCard(
+          post: PostItem(
+            pid: '100',
+            floor: 0,
+            isOp: true,
+            uid: 'u1',
+            username: 'alice',
+            bbcode: '',
+          ),
+          index: 0,
+          tid: '42',
+          currentUid: 'u1',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byType(PopupMenuButton<PostCardAction>));
+    await tester.pumpAndSettle();
+    expect(find.text('在浏览器中打开'), findsNothing);
+  });
 }

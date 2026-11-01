@@ -12,7 +12,14 @@ import 'package:mtbbs/widgets/common/user_avatar.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 
 /// 帖子卡片操作类型（PopupMenu）
-enum PostCardAction { showBbcode, editPost, viewTime, rate, saveImage }
+enum PostCardAction {
+  openInBrowser,
+  showBbcode,
+  editPost,
+  viewTime,
+  rate,
+  saveImage,
+}
 
 /// 帖子/评论卡片组件
 ///
@@ -446,6 +453,15 @@ class _ThreadPostCardState extends State<ThreadPostCard> {
             icon: Icon(Icons.more_horiz, size: 16, color: cs.onSurfaceVariant),
             onSelected: (action) => widget.onPopupAction?.call(action),
             itemBuilder: (_) => [
+              // 内置浏览器不可用的平台（如无 WebView 实现的鸿蒙）不显示该入口，
+              // 否则点进去只会看到「当前平台不支持内置浏览器」的错误页。
+              // 仅评论（非主帖）提供：主帖正文本身已在页面顶部完整渲染。
+              if (!widget.post.isOp &&
+                  AppCapabilities.isAvailable(AppCapability.webView))
+                const PopupMenuItem(
+                  value: PostCardAction.openInBrowser,
+                  child: Text('在浏览器中打开', style: TextStyle(fontSize: 13)),
+                ),
               const PopupMenuItem(
                 value: PostCardAction.showBbcode,
                 child: Text('查看 BBCode', style: TextStyle(fontSize: 13)),

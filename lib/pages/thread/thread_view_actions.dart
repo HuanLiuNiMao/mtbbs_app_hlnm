@@ -247,6 +247,25 @@ extension on _ThreadViewPageState {
 
   // ==================== 导航 ====================
 
+  /// 在**内置浏览器**中打开某楼层对应的网页。
+  ///
+  /// 用途：App 渲染与网页版观感不一致（图片/附件/样式），或需要用到只有网页
+  /// 才有的功能时，直接跳到该楼层的网页定位地址。
+  /// - 评论：`goto=findpost&ptid=tid&pid=pid`（Discuz 会 301 到该楼所在页并定位）
+  /// - 主帖：`mod=viewthread&tid=tid`
+  ///
+  /// 必须带 `intercept=false`：否则浏览器加载完成后 URL 拦截又会把链接解析回
+  /// App 内页面，出现"点了没反应 / 页面原地打转"。地址按本页会话的站点拼，
+  /// 跨站点只读浏览时也能打开对应站点，不会错跳当前站点。
+  void _openPostInBrowser(PostItem post) {
+    final base = _session.baseUrl;
+    final url = (!post.isOp && post.pid.isNotEmpty)
+        ? '$base/forum.php?mod=redirect&goto=findpost'
+              '&ptid=${widget.tid}&pid=${post.pid}'
+        : '$base/forum.php?mod=viewthread&tid=${widget.tid}';
+    context.push('/browser?url=${Uri.encodeComponent(url)}&intercept=false');
+  }
+
   void _navigateComment() {
     if (_data == null) return;
     // 「帖子迷你编辑器」关闭时退回原设计（全屏编辑器）
@@ -317,5 +336,4 @@ extension on _ThreadViewPageState {
     }
     await _loadCommentPage(_currentPage, force: true);
   }
-
 }

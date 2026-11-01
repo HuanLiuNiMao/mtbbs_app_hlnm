@@ -159,6 +159,8 @@ extension on _ThreadViewPageState {
       onRecommend: _handleRecommend,
       onPopupAction: (action, post) {
         switch (action) {
+          case PostCardAction.openInBrowser:
+            _openPostInBrowser(post);
           case PostCardAction.showBbcode:
             _showBbcodeDialog(post);
           case PostCardAction.editPost:
@@ -212,6 +214,8 @@ extension on _ThreadViewPageState {
       onRecommend: () => _handleRecommend(post),
       onPopupAction: (action) {
         switch (action) {
+          case PostCardAction.openInBrowser:
+            _openPostInBrowser(post);
           case PostCardAction.showBbcode:
             _showBbcodeDialog(post);
           case PostCardAction.editPost:
