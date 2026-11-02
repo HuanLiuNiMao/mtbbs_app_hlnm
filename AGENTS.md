@@ -79,7 +79,7 @@ Discuz（MT 论坛克米模板）的 Flutter 客户端。Discuz 无官方 API：
 | 圈子（Discuz 群组，只读） | 19 |
 | 留言板（do=wall：发布/编辑/回复/删除） | 21 |
 | 收听 / 取消收听（follow：收听按钮、hash 参数） | 12 §8 |
-| 内容过滤（板块名单 / 帖子与评论关键词屏蔽） | 04（设置持久化约定；实现落点：`lib/core/utils/content_filter.dart` + `lib/pages/settings/models/content_filter_settings.dart`） |
+| 内容过滤（板块名单 / 帖子与评论屏蔽 / 评论屏蔽触发方式） | 30 + 04（设置持久化约定）；实现落点：`lib/core/utils/content_filter.dart`、`lib/pages/settings/comment_filter_scope_settings.dart`、`lib/pages/settings/thread_filter_scope_settings.dart` |
 | 浏览记录（本地历史、按类型分 Tab、关键词搜索） | 04（`### 浏览记录的本地搜索`）+ 26（`FilterSearchField`）；实现落点：`lib/providers/history_provider.dart`、`lib/core/utils/history_filter.dart`、`lib/pages/history/history_page.dart` |
 | 人机验证 / 站点防护（挑战页、`acw_*` cookie、验证弹窗） | 20 + 07 #80 |
 | MCP 服务端（新增工具 / 能力开关 / 安全策略） | 17 + 09 |

@@ -3,6 +3,7 @@ import 'package:mtbbs/api/helpers.dart';
 import 'package:mtbbs/core/app/page_helper.dart';
 import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/core/parser/post_parser.dart';
+import 'package:mtbbs/core/app/thread_parsers/parser_utils.dart';
 
 /// 帖子详情响应解析（PC 模板）
 ///
@@ -25,6 +26,10 @@ Map<String, dynamic> parseResponse(
 
   final tid = _extractTid(doc);
   final title = _extractTitle(doc);
+  // 板块名（面包屑里的板块链接）——「评论屏蔽 · 分板块触发」在详情页判定用
+  final boardName = parseBoardFields(
+    doc.querySelector('#pt, .pt, #navigation, .navigation'),
+  ).name;
   final pagination = extractPagination(doc);
   final currentPage = pagination['currentPage'] as int;
   final totalPages = pagination['totalPages'] as int;
@@ -92,6 +97,7 @@ Map<String, dynamic> parseResponse(
       'success': true,
       'tid': tid,
       'title': title,
+      'boardName': boardName ?? '',
       'formhash': formhash,
       'currentPage': currentPage,
       'totalPages': totalPages,
@@ -130,6 +136,7 @@ Map<String, dynamic> parseResponse(
     'success': true,
     'tid': tid,
     'title': title,
+    'boardName': boardName ?? '',
     'formhash': formhash,
     'currentPage': currentPage,
     'totalPages': totalPages,

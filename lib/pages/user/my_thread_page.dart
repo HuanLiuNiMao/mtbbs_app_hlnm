@@ -111,105 +111,112 @@ class _MyThreadPageState extends State<MyThreadPage> {
           ),
         ],
       ),
-      body: Builder(builder: (context) {
-        final scopeCfg = context
-            .read<SettingsProvider>()
-            .threadScopeFilter(kThreadScopeUser);
-        return ThreadGrid(
-          controller: _controller,
-          visible: true,
-          // 功能①：他人主页主题列表的板块 + 关键词过滤（本地投影，各列表点独立配置）
-          itemFilter: (items) {
-            final s = context.read<SettingsProvider>();
-            return filterThreadItemsForScope(
-              items,
-              s.threadScopeFilter(kThreadScopeUser),
-            );
-          },
-          // 屏蔽补页：该列表点启用屏蔽时，整页被屏蔽空自动向后扩窗拼接
-          autoExtendOnDeficit: scopeCfg.enabled && !scopeCfg.isNoop,
-          expandedReplies: _expandedReplies,
-          loadingReplies: _loadingReplies,
-          errorReplies: _errorReplies,
-        onViewReplies: widget.type == 'reply'
-            ? (item) {
-                final tid = item.threadId;
-                if (tid == null || tid <= 0) return;
-                // 已有展开或报错 → 收起
-                if (_expandedReplies.containsKey(tid) ||
-                    _errorReplies.containsKey(tid)) {
-                  setState(() {
-                    _expandedReplies.remove(tid);
-                    _errorReplies.remove(tid);
-                  });
-                  return;
-                }
-                // 正在加载 → 忽略
-                if (_loadingReplies.contains(tid)) return;
-                // 开始加载
-                setState(() => _loadingReplies.add(tid));
-                // 先确保表情已加载，回复内容里的表情才能还原
-                EmojiService()
-                    .load()
-                    .then(
-                      (_) => detail_api.getThreadDetail(
-                        ApiService().dio,
-                        tid: tid.toString(),
-                        page: 1,
-                        authorid: uid,
-                      ),
-                    )
-                    .then((result) {
-                      if (!mounted) return;
-                      if (result['success'] != true) {
-                        final msg = result['message']?.toString() ?? '加载失败';
-                        setState(() {
-                          _loadingReplies.remove(tid);
-                          _errorReplies[tid] = msg;
-                        });
-                        return;
-                      }
-                      final data = ThreadViewData.fromMap(
-                        result,
-                        tid.toString(),
-                      );
-                      // 去重：如果第一条评论的 uid 与帖子卡片作者相同，
-                      // 说明是帖子本身（authorid 筛选导致第一条是楼主帖）
-                      var posts = data.posts;
-                      if (posts.isNotEmpty &&
-                          item.uid != null &&
-                          posts.first.uid == item.uid.toString()) {
-                        posts = posts.sublist(1);
-                      }
-                      // 功能②：评论屏蔽（命中即隐藏整层楼；回复别人豁免）
-                      // 注意：必须在楼主帖去重之后过滤，
-                      // 否则首条被过滤后 sublist(1) 会误删真实回复
-                      // （authorid 筛选下 isOp 全为 false，isOp 豁免
-                      // 在此不生效，楼主帖已由上方 uid 对比去重兜底）
-                      final settings = context.read<SettingsProvider>();
-                      posts = filterPostItems(
-                        posts,
-                        settings.commentFilterKeywords,
-                        enabled: settings.commentBlockEnabled,
-                      );
-                      if (!mounted) return;
+      body: Builder(
+        builder: (context) {
+          final scopeCfg = context.read<SettingsProvider>().threadScopeFilter(
+            kThreadScopeUser,
+          );
+          return ThreadGrid(
+            controller: _controller,
+            visible: true,
+            // 功能①：他人主页主题列表的板块 + 关键词过滤（本地投影，各列表点独立配置）
+            itemFilter: (items) {
+              final s = context.read<SettingsProvider>();
+              return filterThreadItemsForScope(
+                items,
+                s.threadScopeFilter(kThreadScopeUser),
+              );
+            },
+            // 屏蔽补页：该列表点启用屏蔽时，整页被屏蔽空自动向后扩窗拼接
+            autoExtendOnDeficit: scopeCfg.enabled && !scopeCfg.isNoop,
+            expandedReplies: _expandedReplies,
+            loadingReplies: _loadingReplies,
+            errorReplies: _errorReplies,
+            onViewReplies: widget.type == 'reply'
+                ? (item) {
+                    final tid = item.threadId;
+                    if (tid == null || tid <= 0) return;
+                    // 已有展开或报错 → 收起
+                    if (_expandedReplies.containsKey(tid) ||
+                        _errorReplies.containsKey(tid)) {
                       setState(() {
-                        _loadingReplies.remove(tid);
+                        _expandedReplies.remove(tid);
                         _errorReplies.remove(tid);
-                        _expandedReplies[tid] = posts;
                       });
-                    })
-                    .catchError((e) {
-                      if (!mounted) return;
-                      setState(() {
-                        _loadingReplies.remove(tid);
-                        _errorReplies[tid] = e.toString();
-                      });
-                    });
-              }
-            : null,
-        );
-      }),
+                      return;
+                    }
+                    // 正在加载 → 忽略
+                    if (_loadingReplies.contains(tid)) return;
+                    // 开始加载
+                    setState(() => _loadingReplies.add(tid));
+                    // 先确保表情已加载，回复内容里的表情才能还原
+                    EmojiService()
+                        .load()
+                        .then(
+                          (_) => detail_api.getThreadDetail(
+                            ApiService().dio,
+                            tid: tid.toString(),
+                            page: 1,
+                            authorid: uid,
+                          ),
+                        )
+                        .then((result) {
+                          if (!mounted) return;
+                          if (result['success'] != true) {
+                            final msg = result['message']?.toString() ?? '加载失败';
+                            setState(() {
+                              _loadingReplies.remove(tid);
+                              _errorReplies[tid] = msg;
+                            });
+                            return;
+                          }
+                          final data = ThreadViewData.fromMap(
+                            result,
+                            tid.toString(),
+                          );
+                          // 去重：如果第一条评论的 uid 与帖子卡片作者相同，
+                          // 说明是帖子本身（authorid 筛选导致第一条是楼主帖）
+                          var posts = data.posts;
+                          if (posts.isNotEmpty &&
+                              item.uid != null &&
+                              posts.first.uid == item.uid.toString()) {
+                            posts = posts.sublist(1);
+                          }
+                          // 功能②：评论屏蔽（命中即隐藏整层楼；回复别人豁免）
+                          // 注意：必须在楼主帖去重之后过滤，
+                          // 否则首条被过滤后 sublist(1) 会误删真实回复
+                          // （authorid 筛选下 isOp 全为 false，isOp 豁免
+                          // 在此不生效，楼主帖已由上方 uid 对比去重兜底）
+                          // 板块名 / 隐藏贴标记都取自本次详情结果，
+                          // 「仅隐藏贴」「分板块」两种触发方式才能正确判定。
+                          final settings = context.read<SettingsProvider>();
+                          posts = filterPostItems(
+                            posts,
+                            settings.commentFilter,
+                            boardName: data.boardName,
+                            isHiddenThread: isHiddenThreadBbcode(
+                              data.mainPost?.bbcode ?? '',
+                            ),
+                          );
+                          if (!mounted) return;
+                          setState(() {
+                            _loadingReplies.remove(tid);
+                            _errorReplies.remove(tid);
+                            _expandedReplies[tid] = posts;
+                          });
+                        })
+                        .catchError((e) {
+                          if (!mounted) return;
+                          setState(() {
+                            _loadingReplies.remove(tid);
+                            _errorReplies[tid] = e.toString();
+                          });
+                        });
+                  }
+                : null,
+          );
+        },
+      ),
     );
   }
 }

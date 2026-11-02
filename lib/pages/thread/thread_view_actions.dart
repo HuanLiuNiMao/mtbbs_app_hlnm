@@ -1,12 +1,11 @@
 part of 'thread_view_page.dart';
 
-/// 主帖"回复可见"占位标记。
+/// 主帖「回复可见」占位标记。
 ///
-/// 与 `post_parser.dart` / `html2bbcode.dart` 写出的 appdata 保持一致：
+/// 正则只在 `content_filter.dart` 维护一份（[kLockedAppdataRe]），
+/// 「评论屏蔽 · 仅隐藏贴触发」与这里的「回复后重取主帖」共用同一判据。
 /// 未回复时 Discuz 只下发 `.locked`（🔒 提示），回复后才会换成正文。
-final _lockedAppdataRe = RegExp(
-  r'\[appdata\]\{"type":"locked".*?\}\[/appdata\]',
-);
+final RegExp _lockedAppdataRe = kLockedAppdataRe;
 
 /// 帖子浏览页 — 交互与数据操作。
 ///
@@ -85,10 +84,7 @@ extension on _ThreadViewPageState {
       return;
     }
     try {
-      final result = await action_api.doRecommend(
-        _dio,
-        post.recommendUrl,
-      );
+      final result = await action_api.doRecommend(_dio, post.recommendUrl);
       if (!mounted) return;
       if (result.success) _setState(() => _liked = !_liked);
       showToast(result.message.isNotEmpty ? result.message : '操作成功');

@@ -4,43 +4,48 @@
 ///   隐藏），可切换白名单（只有命中的板块才显示）；名单为空时不生效。
 /// - 帖子标题关键词过滤（功能①）：简单子串包含匹配（大小写不敏感），
 ///   不引入正则，避免用户输入非法正则导致运行时崩溃。
-/// - 评论关键词过滤（功能②）：对齐 mtlite-tweaks 的「评论屏蔽」语义——
+/// - 评论屏蔽（功能②）：对齐 mtlite-tweaks 的「评论屏蔽」语义——
 ///   每行一条屏蔽词，合法正则按正则匹配（包含语义、大小写不敏感），
 ///   非法正则退化为子串匹配；正文（剥引用、去空白）超过 10 字不屏蔽；
 ///   纯 ASCII 可打印且不含 `.` 的短评直接屏蔽（灌水特征）；楼主帖与
-///   「回复别人」的楼层豁免（引用内容容易误伤）；内置词表随版本号
-///   预填一次（见 [kCommentBlockWordsVersion]），用户可自由删改，
-///   升级时旧内置行被替换、自定义词保留。
+///   「回复别人」的楼层豁免（引用内容容易误伤）。
+///
+/// 屏蔽词**不再内置默认词表**：`keywords` 完全由用户维护，缺省为空 =
+/// 不屏蔽任何评论。触发范围由 [CommentFilterConfig] 表达，支持两种触发
+/// 方式（都不设置时屏蔽词全局生效，与旧行为一致）：
+/// - 「仅隐藏贴触发」：只有当前主题是隐藏贴（回复可见）时才应用屏蔽词；
+/// - 「按板块触发」：只有当前主题所属板块命中名单时才应用屏蔽词
+///   （黑名单 = 名单内生效，白名单 = 名单外生效，UI 与板块屏蔽同源）。
 library;
+
 import 'package:mtbbs/models/thread_detail.dart';
 import 'package:mtbbs/models/thread_item.dart';
 
-// ==================== 内置评论屏蔽词（对齐 mtlite-tweaks 版本 3） ====================
+// ==================== 隐藏贴判据 ====================
 
-/// 内置评论屏蔽词表。
+/// 主帖「回复可见」占位：未回复时 Discuz 只下发 `.locked`（🔒 提示），
+/// 回复后才会换成正文（见 `lib/core/parser/post_parser.dart`）。
 ///
-/// 首次运行/版本升级时合并为一条 `|` 正则追加进「评论屏蔽词」设置；
-/// 用户删掉或改掉后，只要版本号不变就不会再写回。
-const List<String> kCommentBlockWords = [
-  '康康看下', '看一下', '看一看', '看下隐藏', '看看隐藏', '看看内容', '看隐藏',
-  '看着吧好东西', '好东西', '试用一下', '超级喜欢',
-  '感谢分享', '感谢大佬分享', '感谢楼主', '感谢感谢', '谢谢谢谢', '谢谢分享',
-  '学习学习', '学习下', '学习一下', '膜拜大佬', '大佬牛批', '牛批牛批',
-  '厉害厉害', '太给力了', '恭喜恭喜', '支持下', '支持一下',
-  '论坛有你更美好', '论坛有你更精彩', '试试看吧', '太棒了', '太强了', '太好了',
-  '太强啦', '太棒啦', '拿走了', '快快', '大佬牛逼', '大佬厉害', '厉害了',
-  '瞅瞅', '学习', '看看', '试试', '优秀', '谢谢', '大佬', '测试', '好的',
-  '给力', '来了', '感谢', 'look', '看下', '不错', '牛', '厉害', '路过',
-];
+/// 与「回复后重取主帖」共用同一份正则（见 `thread_view_actions.dart`），
+/// 避免两处判据漂移。
+final RegExp kLockedAppdataRe = RegExp(
+  r'\[appdata\]\{"type":"locked".*?\}\[/appdata\]',
+);
 
-/// 内置词表版本号（对齐 mtlite「屏蔽词预置」）。
+/// BBCode 隐藏内容块（回复后可见的正文段落，见 `bbcode_blocks.dart`）
+final RegExp _hideBlockRe = RegExp(
+  r'\[hide(?:=[^\]]*)?\][\s\S]*?\[/hide\]',
+  caseSensitive: false,
+);
+
+/// 该主题是否为「隐藏贴」——回复可见类主题。
 ///
-/// 修改 [kCommentBlockWords] 时必须同步 +1；升级时据此把旧内置正则
-/// 替换为新表，用户自定义词保留。
-const String kCommentBlockWordsVersion = '3';
+/// 两种形态都算：未回复时的 `[appdata] locked` 占位，以及已解锁但正文里
+/// 仍保留的 `[hide]...[/hide]` 块。两者都是解析层已产出的稳定标记，
+/// 不依赖额外的网页请求。
+bool isHiddenThreadBbcode(String bbcode) =>
+    kLockedAppdataRe.hasMatch(bbcode) || _hideBlockRe.hasMatch(bbcode);
 
-/// 内置词表合并后的单条正则（`|` 表示或，含匹配而非完全匹配）。
-String get kCommentBlockWordsRegex => kCommentBlockWords.join('|');
 // ==================== 功能①：板块 / 标题过滤 ====================
 
 /// 判断 [title] 是否命中关键词名单。
@@ -110,6 +115,7 @@ final RegExp _hideHintRe = RegExp(r'查看本帖隐藏|回复可见|回复后可
 
 /// 全 ASCII 可打印字符（\x20-\x7E，不含中文等非 ASCII 字符）
 final RegExp _printableAsciiRe = RegExp(r'^[\x20-\x7E]+$');
+
 /// 屏蔽词 / 关键词匹配器：合法正则按正则匹配（包含语义、大小写不敏感），
 /// 非法正则自动退化为子串匹配，避免用户输入导致运行时崩溃。
 /// （评论屏蔽词与帖子标题关键词共用同一套匹配语义）
@@ -197,19 +203,160 @@ bool shouldBlockComment(String text, List<CommentWordMatcher> matchers) {
   return false;
 }
 
-/// 对评论（楼层）做关键词过滤：命中即隐藏整层楼。
+// ==================== 功能②：屏蔽词触发范围 ====================
+
+/// 评论屏蔽配置：开关 + 两种触发方式 + 屏蔽词。
 ///
-/// - [enabled] 为「评论屏蔽」总开关（默认开）；关闭或词表为空时原样返回；
+/// 与 [ThreadScopeFilter] 对称（同款 `enabled` / `modeBlock` / `boards` /
+/// `keywords` 语义，另加 `onlyHiddenThread`），持久化为 JSON。
+///
+/// **没有内置默认词表**：`keywords` 完全由用户维护，为空即不过滤。
+class CommentFilterConfig {
+  /// 评论屏蔽总开关（关闭 = 评论完全不过滤）
+  final bool enabled;
+
+  /// 触发方式①：只有「隐藏贴」（回复可见类主题）才应用屏蔽词
+  final bool onlyHiddenThread;
+
+  /// 触发方式②的名单模式：true = 黑名单（名单内板块才应用），
+  /// false = 白名单（名单内板块不应用，其余板块应用）
+  final bool modeBlock;
+
+  /// 触发方式②的板块名单（空 = 不按板块触发）
+  final List<String> boards;
+
+  /// 屏蔽词（每行一条，支持正则；空 = 不屏蔽任何评论）
+  final List<String> keywords;
+
+  const CommentFilterConfig({
+    this.enabled = true,
+    this.onlyHiddenThread = false,
+    this.modeBlock = true,
+    this.boards = const [],
+    this.keywords = const [],
+  });
+
+  /// 两种触发方式都没设置（此时屏蔽词全局生效，与旧行为一致）
+  bool get isGlobalTrigger => !onlyHiddenThread && boards.isEmpty;
+
+  /// 去掉触发方式限制（屏蔽词按「全局生效」语义判定）。
+  ///
+  /// 给拿不到主题上下文的调用点用（如「消息 → 我的帖子」的回帖预览：那里
+  /// 只有单条 bbcode，既无板块名也无隐藏贴标记）。触发方式是为浏览帖子时
+  /// 的评论区做精细控制用的，在这些位置无法判定，若沿用会被判为「无法
+  /// 命中」而导致该处永久不过滤——与「消息里也过滤」的需求相悖。
+  CommentFilterConfig withoutTrigger() =>
+      copyWith(onlyHiddenThread: false, boards: const []);
+
+  /// 没有屏蔽词 → 什么都不会被屏蔽（供「屏蔽补页」判断用）
+  bool get isNoop => keywords.isEmpty;
+
+  CommentFilterConfig copyWith({
+    bool? enabled,
+    bool? onlyHiddenThread,
+    bool? modeBlock,
+    List<String>? boards,
+    List<String>? keywords,
+  }) => CommentFilterConfig(
+    enabled: enabled ?? this.enabled,
+    onlyHiddenThread: onlyHiddenThread ?? this.onlyHiddenThread,
+    modeBlock: modeBlock ?? this.modeBlock,
+    boards: boards ?? this.boards,
+    keywords: keywords ?? this.keywords,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'onlyHiddenThread': onlyHiddenThread,
+    'modeBlock': modeBlock,
+    'boards': boards,
+    'keywords': keywords,
+  };
+
+  factory CommentFilterConfig.fromJson(Map<String, dynamic> j) =>
+      CommentFilterConfig(
+        enabled: (j['enabled'] as bool?) ?? true,
+        onlyHiddenThread: (j['onlyHiddenThread'] as bool?) ?? false,
+        modeBlock: (j['modeBlock'] as bool?) ?? true,
+        boards: ((j['boards'] as List<dynamic>?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+        keywords: ((j['keywords'] as List<dynamic>?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+      );
+}
+
+/// 屏蔽词当前是否应作用于「这个主题」。
+///
+/// - 总开关关闭 → false；
+/// - 两种触发方式都没设置 → true（全局生效，旧行为）；
+/// - 设置了触发方式 → 任一条件命中即生效（「仅隐藏贴」命中隐藏贴、
+///   「按板块」命中 [filterByBoard] 的板块）；
+/// - 触发条件已设置但调用方拿不到对应信息（如消息预览只有单条正文，
+///   既无板块也无隐藏贴标记）→ 该条件视为无法命中，保守不屏蔽。
+bool commentFilterApplies(
+  CommentFilterConfig f, {
+  String? boardName,
+  bool? isHiddenThread,
+}) {
+  if (!f.enabled) return false;
+  if (f.isGlobalTrigger) return true;
+  if (f.onlyHiddenThread && isHiddenThread == true) return true;
+  if (f.boards.isNotEmpty &&
+      boardName != null &&
+      filterByBoard(boardName, f.boards, f.modeBlock)) {
+    return true;
+  }
+  return false;
+}
+
+/// 单条评论正文是否屏蔽（供拿不到 [PostItem] 的调用点使用，如消息预览）。
+///
+/// 判定链与 [filterPostItems] 一致，只是入口是裸 bbcode：
+/// 触发范围 → 「回复别人」豁免 → 正文为空豁免 → [shouldBlockComment]。
+bool shouldBlockCommentBbcode(
+  String bbcode,
+  CommentFilterConfig f, {
+  String? boardName,
+  bool? isHiddenThread,
+}) {
+  if (!commentFilterApplies(
+    f,
+    boardName: boardName,
+    isHiddenThread: isHiddenThread,
+  )) {
+    return false;
+  }
+  if (f.keywords.isEmpty) return false;
+  if (isReplyToOther(bbcode)) return false; // 回复别人的楼层不屏蔽
+  final t = commentBodyText(bbcode);
+  if (t.isEmpty) return false;
+  return shouldBlockComment(t, buildCommentMatchers(f.keywords));
+}
+
+/// 对评论（楼层）做屏蔽词过滤：命中即隐藏整层楼。
+///
+/// - [f] 为评论屏蔽配置（开关 + 触发方式 + 屏蔽词）；
+/// - [boardName] / [isHiddenThread] 为当前主题上下文，供触发方式判定；
 /// - 楼主帖（`isOp`）不参与屏蔽；
 /// - 「回复别人」的楼层（带非提示类引用块）不屏蔽，避免引用内容误伤；
 /// - 匹配正文（剥引用、去空白），规则见 [shouldBlockComment]。
 List<PostItem> filterPostItems(
   List<PostItem> posts,
-  List<String> keywords, {
-  bool enabled = true,
+  CommentFilterConfig f, {
+  String? boardName,
+  bool? isHiddenThread,
 }) {
-  if (!enabled || keywords.isEmpty) return posts;
-  final matchers = buildCommentMatchers(keywords);
+  if (!commentFilterApplies(
+    f,
+    boardName: boardName,
+    isHiddenThread: isHiddenThread,
+  )) {
+    return posts;
+  }
+  if (f.keywords.isEmpty) return posts;
+  final matchers = buildCommentMatchers(f.keywords);
   return posts.where((p) {
     if (p.isOp) return true; // 楼主帖不参与屏蔽
     final code = p.bbcode;
@@ -224,10 +371,13 @@ List<PostItem> filterPostItems(
 
 /// 帖子列表点标识：社区页（含标签页）
 const String kThreadScopeCommunity = 'community';
+
 /// 帖子列表点标识：导读页
 const String kThreadScopeGuide = 'guide';
+
 /// 帖子列表点标识：站内搜索结果页
 const String kThreadScopeSearch = 'search';
+
 /// 帖子列表点标识：个人主页主题/回帖列表
 const String kThreadScopeUser = 'user';
 
@@ -238,6 +388,7 @@ const String kThreadScopeUser = 'user';
 class ThreadScopeFilter {
   /// 该列表点的屏蔽总开关（关闭 = 该列表完全不过滤）
   final bool enabled;
+
   /// 板块名单模式：true = 黑名单（命中隐藏），false = 白名单（仅命中显示）
   final bool modeBlock;
   final List<String> boards;
@@ -276,14 +427,12 @@ class ThreadScopeFilter {
       ThreadScopeFilter(
         enabled: (j['enabled'] as bool?) ?? true,
         modeBlock: (j['modeBlock'] as bool?) ?? true,
-        boards:
-            ((j['boards'] as List<dynamic>?) ?? const [])
-                .map((e) => e.toString())
-                .toList(),
-        keywords:
-            ((j['keywords'] as List<dynamic>?) ?? const [])
-                .map((e) => e.toString())
-                .toList(),
+        boards: ((j['boards'] as List<dynamic>?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
+        keywords: ((j['keywords'] as List<dynamic>?) ?? const [])
+            .map((e) => e.toString())
+            .toList(),
       );
 }
 

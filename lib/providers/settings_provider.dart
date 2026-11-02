@@ -248,14 +248,16 @@ class SettingsProvider extends ChangeNotifier {
   // ==================== 内容过滤（个人主页主题 + 评论区） ====================
   /// 主页主题列表板块过滤：true = 屏蔽列表内板块（黑名单，默认）
   bool _threadFilterModeBlock = true;
+
   /// 板块过滤名单（黑名单时为要屏蔽的板块名；白名单时为仅保留的板块名）
   List<String> _threadFilterBoards = [];
+
   /// 主页主题列表标题关键词过滤（命中即隐藏，逗号/换行分隔，空 = 不过滤）
   List<String> _threadFilterKeywords = [];
-  /// 评论区关键词过滤（命中即隐藏整层楼，逗号/换行分隔，空 = 不过滤）
-  List<String> _commentFilterKeywords = [];
-  /// 评论屏蔽总开关（对齐 mtlite「评论屏蔽」，默认开）
-  bool _commentBlockEnabled = true;
+
+  /// 评论屏蔽配置：开关 + 两种触发方式（仅隐藏贴 / 按板块）+ 屏蔽词。
+  /// 持久化为 JSON（key = `commentFilter`），无内置默认词表。
+  CommentFilterConfig _commentFilter = const CommentFilterConfig();
 
   // ==================== 留在类体内的成员 ====================
   //
@@ -334,10 +336,9 @@ class SettingsProvider extends ChangeNotifier {
   List<String> get threadFilterBoards => List.unmodifiable(_threadFilterBoards);
   List<String> get threadFilterKeywords =>
       List.unmodifiable(_threadFilterKeywords);
-  List<String> get commentFilterKeywords =>
-      List.unmodifiable(_commentFilterKeywords);
-  bool get commentBlockEnabled => _commentBlockEnabled;
 
+  /// 评论屏蔽配置（开关 + 触发方式 + 屏蔽词）
+  CommentFilterConfig get commentFilter => _commentFilter;
   Future<void> setThreadFilterModeBlock(bool value) async {
     _threadFilterModeBlock = value;
     await _db.setSettingBool('threadFilterModeBlock', value);
@@ -359,17 +360,10 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setCommentFilterKeywords(List<String> keywords) async {
-    _commentFilterKeywords = List.of(keywords);
-    await _db.setSetting(
-      'commentFilterKeywords',
-      jsonEncode(_commentFilterKeywords),
-    );
-    notifyListeners();
-  }
-  Future<void> setCommentBlockEnabled(bool value) async {
-    _commentBlockEnabled = value;
-    await _db.setSettingBool('commentBlockEnabled', value);
+  /// 写入评论屏蔽配置（整份 JSON 落库）
+  Future<void> setCommentFilter(CommentFilterConfig f) async {
+    _commentFilter = f;
+    await _db.setSetting('commentFilter', jsonEncode(f.toJson()));
     notifyListeners();
   }
 
@@ -383,16 +377,14 @@ class SettingsProvider extends ChangeNotifier {
     kThreadScopeSearch,
     kThreadScopeUser,
   ];
+
   /// 取某列表点的过滤配置；未配置时返回默认空配置（不过滤）
   ThreadScopeFilter threadScopeFilter(String scope) =>
       _threadScopeFilters[scope] ?? const ThreadScopeFilter();
 
   Future<void> setThreadScopeFilter(String scope, ThreadScopeFilter f) async {
     _threadScopeFilters[scope] = f;
-    await _db.setSetting(
-      'threadScopeFilter_$scope',
-      jsonEncode(f.toJson()),
-    );
+    await _db.setSetting('threadScopeFilter_$scope', jsonEncode(f.toJson()));
     notifyListeners();
   }
 }

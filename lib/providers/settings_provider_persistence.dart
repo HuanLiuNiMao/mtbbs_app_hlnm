@@ -67,31 +67,45 @@ extension SettingsPersistence on SettingsProvider {
     _threadFilterKeywords = _decodeStringList(
       await _db.getSetting('threadFilterKeywords'),
     );
-    _commentFilterKeywords = _decodeStringList(
-      await _db.getSetting('commentFilterKeywords'),
-    );
-    // 评论屏蔽总开关（默认开，对齐 mtlite「评论屏蔽」）
-    _commentBlockEnabled =
-        (await _db.getSettingBool('commentBlockEnabled')) ?? true;
-    // 评论屏蔽词预填：首次运行/内置词表版本升级时，把内置词表合并成的
-    // 一条正则写进设置（对齐 mtlite「屏蔽词预置」机制——旧内置正则以
-    // 「康康看下|」开头据此剔除，用户自定义词保留，可自由删改）。
-    final wordsVersion = await _db.getSetting('commentBlockWordsVersion');
-    if (wordsVersion != kCommentBlockWordsVersion) {
-      final keep = _commentFilterKeywords
+    // 评论屏蔽配置：JSON 持久化（key = commentFilter），损坏/缺省时回退默认
+    // （开关开、无触发方式限制、无屏蔽词 = 不过滤）。
+    _commentFilter = const CommentFilterConfig();
+    final rawCommentFilter = await _db.getSetting('commentFilter');
+    if (rawCommentFilter != null && rawCommentFilter.isNotEmpty) {
+      try {
+        _commentFilter = CommentFilterConfig.fromJson(
+          jsonDecode(rawCommentFilter) as Map<String, dynamic>,
+        );
+      } catch (_) {
+        // 损坏时保持默认（不影响其他设置项）
+      }
+    } else {
+      // 从旧版（commentFilterKeywords + commentBlockEnabled）迁移一次：
+      // 旧版有内置词表预填，其中「内置词合并成的那条正则」以「康康看下|」
+      // 开头，属于被移除的内置默认词，必须剔除——否则旧用户升级后表现为
+      // 「内置词没删掉」。剔除后剩下的才是用户自己加的词。
+      final legacyKeywords = _decodeStringList(
+        await _db.getSetting('commentFilterKeywords'),
+      );
+      final migrated = legacyKeywords
           .map((l) => l.trim())
           .where((l) => l.isNotEmpty && !l.startsWith('康康看下|'))
           .toList();
-      keep.add(kCommentBlockWordsRegex);
-      _commentFilterKeywords = keep;
-      await _db.setSetting(
-        'commentFilterKeywords',
-        jsonEncode(_commentFilterKeywords),
+      final legacyEnabled =
+          (await _db.getSettingBool('commentBlockEnabled')) ?? true;
+      _commentFilter = CommentFilterConfig(
+        enabled: legacyEnabled,
+        keywords: migrated,
       );
       await _db.setSetting(
-        'commentBlockWordsVersion',
-        kCommentBlockWordsVersion,
+        'commentFilter',
+        jsonEncode(_commentFilter.toJson()),
       );
+      // 旧键（评论屏蔽词 / 总开关 / 内置词版本号）已并入新配置，删除避免
+      // 两份数据并存；commentBlockWordsVersion 随内置词表一并废弃。
+      await _db.deleteSetting('commentFilterKeywords');
+      await _db.deleteSetting('commentBlockEnabled');
+      await _db.deleteSetting('commentBlockWordsVersion');
     }
     // ==================== 按列表点的帖子屏蔽配置（功能①扩展） ====================
     // 逐点加载 JSON 配置；损坏/缺省时回退空配置（不过滤）

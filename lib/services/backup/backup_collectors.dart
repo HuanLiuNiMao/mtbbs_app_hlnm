@@ -33,9 +33,10 @@ const List<String> _kContentFilterKeys = [
   'threadFilterModeBlock',
   'threadFilterBoards',
   'threadFilterKeywords',
-  'commentFilterKeywords',
-  'commentBlockEnabled',
-  'commentBlockWordsVersion',
+  // 评论屏蔽：开关 + 两种触发方式 + 屏蔽词，整份 JSON（旧键
+  // commentFilterKeywords / commentBlockEnabled / commentBlockWordsVersion
+  // 已在升级时迁移并删除，不再列出——否则恢复旧备份会把废弃键写回来）
+  'commentFilter',
 ];
 
 /// 内容过滤按列表点配置的键前缀

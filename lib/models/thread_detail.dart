@@ -5,6 +5,12 @@
 class ThreadViewData {
   final String tid;
   final String title;
+
+  /// 主题所属板块名（取自页面面包屑；解析不到时为 ''）。
+  ///
+  /// 供「评论屏蔽 · 分板块触发」判定用：详情页拿不到 [ThreadItem.boardName]
+  /// （那是列表页字段），必须由详情解析单独补一份。
+  final String boardName;
   final int currentPage;
   final int totalPages;
   final String formhash;
@@ -20,6 +26,7 @@ class ThreadViewData {
     required this.title,
     required this.currentPage,
     required this.totalPages,
+    this.boardName = '',
     this.formhash = '',
     this.mainPost,
     this.posts = const [],
@@ -43,6 +50,7 @@ class ThreadViewData {
     return ThreadViewData(
       title: result['title']?.toString() ?? '',
       tid: result['tid']?.toString() ?? tid,
+      boardName: result['boardName']?.toString() ?? '',
       currentPage: result['currentPage'] as int? ?? 1,
       totalPages: result['totalPages'] as int? ?? 1,
       mainPost: mainPost,

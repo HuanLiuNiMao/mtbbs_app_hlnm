@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mtbbs/api/home/mypost/export.dart' as mypost_api;
 import 'package:mtbbs/config/notice_config.dart';
+import 'package:mtbbs/core/utils/content_filter.dart';
 import 'package:mtbbs/core/utils/url_router.dart';
 import 'package:mtbbs/core/utils/url_util.dart';
 import 'package:mtbbs/models/post_preview.dart';
@@ -122,6 +123,20 @@ class _MypostTabState extends State<MypostTab>
     final ids = parseViewUrl(viewUrl);
     final isPreviewLoading = _previewLoading.contains(index);
     final preview = _previews[index];
+    // 功能②：评论屏蔽同样作用于「我的帖子」的回帖预览。
+    // 这里只有单条 bbcode（没有 PostItem），用单条判定入口。
+    //
+    // 触发方式（仅隐藏贴 / 分板块）需要「当前主题」的上下文，而消息条目
+    // 只有 tid/pid，拿不到板块名也拿不到隐藏贴标记。这两个触发方式是给
+    // 「浏览帖子时的评论区」做精细控制的，在这里无法判定，所以**不参与**
+    // 消息页判定：只要开关开着且有屏蔽词，就按屏蔽词过滤——否则用户设了
+    // 触发方式后消息页会永久失效（与需求「消息里也过滤」相悖）。
+    final settings = context.read<SettingsProvider>();
+    final commentCfg = settings.commentFilter;
+    final previewBlocked =
+        preview != null &&
+        preview.bbcode.isNotEmpty &&
+        shouldBlockCommentBbcode(preview.bbcode, commentCfg.withoutTrigger());
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
@@ -185,13 +200,32 @@ class _MypostTabState extends State<MypostTab>
             else if (preview != null && preview.bbcode.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: PostHtmlWidget(
-                  bbcode: preview.bbcode,
-                  disabledTags: const {},
-                  autoDetectUrls: context
-                      .read<SettingsProvider>()
-                      .autoDetectUrls,
-                ),
+                child: previewBlocked
+                    // 命中评论屏蔽词：只隐藏回帖正文，保留「查看 / 回复」入口，
+                    // 用户仍可点进帖子按完整上下文查看
+                    ? Row(
+                        children: [
+                          Icon(
+                            Icons.visibility_off_outlined,
+                            size: 14,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '回帖内容已屏蔽（命中评论屏蔽词）',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      )
+                    : PostHtmlWidget(
+                        bbcode: preview.bbcode,
+                        disabledTags: const {},
+                        autoDetectUrls: settings.autoDetectUrls,
+                      ),
               ),
             // 操作按钮行
             Row(
@@ -222,7 +256,9 @@ class _MypostTabState extends State<MypostTab>
                       '/editor?type=reply&tid=${ids.tid}&pid=${ids.pid}',
                     ),
                   ),
-                if (preview != null && preview.bbcode.isNotEmpty) ...[
+                if (preview != null &&
+                    preview.bbcode.isNotEmpty &&
+                    !previewBlocked) ...[
                   const SizedBox(width: 6),
                   PopupMenuButton<String>(
                     padding: EdgeInsets.zero,

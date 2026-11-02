@@ -116,10 +116,7 @@ extension on _ThreadViewPageState {
     // 只读缓存：缺失页 = 未缓存，与「已缓存但无评论」区分
     if (_isCacheMode &&
         _cacheSnapshot?.commentPages.containsKey(_currentPage) != true) {
-      return const SizedBox(
-        height: 200,
-        child: EmptyView(text: '该页未缓存'),
-      );
+      return const SizedBox(height: 200, child: EmptyView(text: '该页未缓存'));
     }
     if (currentPosts == null && _pageLoading) {
       return const Padding(
@@ -127,18 +124,28 @@ extension on _ThreadViewPageState {
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    // 功能②：评论屏蔽（命中即隐藏整层楼；楼主/回复别人豁免；空名单或开关关闭时原样返回）
+    // 功能②：评论屏蔽（命中即隐藏整层楼；楼主/回复别人豁免）
+    // 触发范围由配置决定：无触发方式 → 全局生效；「仅隐藏贴」→ 只有隐藏贴；
+    // 「按板块」→ 只有本主题板块命中名单。板块名来自详情页面包屑。
     final settings = context.read<SettingsProvider>();
+    final commentCfg = settings.commentFilter;
+    final isHiddenThread = isHiddenThreadBbcode(_data?.mainPost?.bbcode ?? '');
     currentPosts = currentPosts == null
         ? null
         : filterPostItems(
             currentPosts,
-            settings.commentFilterKeywords,
-            enabled: settings.commentBlockEnabled,
+            commentCfg,
+            boardName: _data?.boardName,
+            isHiddenThread: isHiddenThread,
           );
     // 功能②扩展：屏蔽补页缺额检测——过滤后可见不足一页基准时自动向后扩窗。
     // 闭包异步执行（不阻塞 build）；_pageLoading 在 _loadCommentPage 内部防重入。
-    if (settings.commentBlockEnabled &&
+    final commentFilterActive = commentFilterApplies(
+      commentCfg,
+      boardName: _data?.boardName,
+      isHiddenThread: isHiddenThread,
+    );
+    if (commentFilterActive &&
         currentPosts != null &&
         currentPosts.length < _commentPageSizeHint &&
         (_windowEnd - _currentPage + 1) <
