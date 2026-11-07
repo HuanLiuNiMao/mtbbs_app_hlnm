@@ -79,8 +79,10 @@ class BackupLocalStore {
   }
 
   /// 读回某个备份的文本内容
-  Future<String> read(String name) =>
-      File(p.join(File(await AppPaths.backupsDir).path, name)).readAsString();
+  Future<String> read(String name) async {
+    final dir = await AppPaths.backupsDir;
+    return File(p.join(dir, name)).readAsString();
+  }
 
   /// 删除指定备份
   Future<void> delete(String name) async {
