@@ -64,6 +64,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
   bool? _isFollowing; // null = 未登录/未渲染按钮（不显示关注项）
   String _followHash = '';
   String _followFormhash = '';
+
+  /// 关注目标 uid（写接口 fuid 参数；Discuz 缺失即 Access Denied）
+  String _followFuid = '';
   bool _followLoading = false;
 
   @override
@@ -188,10 +191,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
       final data = await follow_api.getFollowStatus(_dio, widget.uid);
       if (!mounted) return;
       if (data['success'] == true) {
+        final formhash = (data['formhash'] as String?) ?? '';
+        final parsedFuid = (data['fuid'] as String?) ?? '';
         setState(() {
           _isFollowing = data['isFollowing'] as bool?;
           _followHash = (data['followHash'] as String?) ?? '';
-          _followFormhash = (data['formhash'] as String?) ?? '';
+          _followFormhash = formhash;
+          // fuid 优先用页面 href 里解析出的值，解析不到就用本页 uid 兜底
+          // （Discuz 写接口要求 fuid 必填，缺失会直接 Access Denied）
+          _followFuid = parsedFuid.isNotEmpty ? parsedFuid : widget.uid;
         });
       }
     } catch (e) {
@@ -202,7 +210,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 关注/取消关注（乐观更新，失败回滚）
   Future<void> _toggleFollow() async {
     if (_followLoading) return;
-    if (_followHash.isEmpty || _followFormhash.isEmpty) {
+    final fuid = _followFuid.isNotEmpty ? _followFuid : widget.uid;
+    if (fuid.isEmpty || _followFormhash.isEmpty) {
       showToast('关注信息未就绪，请稍候或刷新');
       return;
     }
@@ -215,12 +224,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
       final data = wasFollowing
           ? await follow_api.unfollowUser(
               _dio,
-              hashUid: _followHash,
+              fuid: fuid,
               formhash: _followFormhash,
             )
           : await follow_api.followUser(
               _dio,
-              hashUid: _followHash,
+              fuid: fuid,
               formhash: _followFormhash,
             );
       if (!mounted) return;

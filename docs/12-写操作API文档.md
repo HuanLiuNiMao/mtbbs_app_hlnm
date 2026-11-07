@@ -171,20 +171,53 @@
 | `tool/scenarios/write_scenarios.dart` | post.new / post.reply / post.edit / post.captcha 探针场景 |
 
 
-## 9. 收听 / 取消收听 — uid + hash
+## 9. 收听 / 取消收听 — fuid + hash(=formhash)
 
 | 项 | 值 |
 |---|---|
-| 加载页 | `GET /home.php?mod=space&uid={uid}&do=profile`（同时取 `formhash` 与关注按钮的 `hash`） |
-| 收听端点 | `POST /home.php?mod=spacecp&ac=follow&op=add&hash={hash}&inajax=1` |
-| 取消端点 | `POST /home.php?mod=spacecp&ac=follow&op=del&hash={hash}&inajax=1` |
-| 必填参数 | `formhash`；op=add 时额外 `followsubmit=true` |
+| 加载页 | `GET /home.php?mod=space&uid={uid}&do=profile`（同时取 `formhash`、按钮 `href` 里的 `hash` 与 `fuid`） |
+| 收听端点 | `POST /home.php?mod=spacecp&ac=follow&op=add&hash={hash}&fuid={fuid}&handlekey=followmod&inajax=1` |
+| 取消端点 | `POST /home.php?mod=spacecp&ac=follow&op=del&hash={hash}&fuid={fuid}&handlekey=followmod&inajax=1` |
+| 必填参数 | `fuid`（目标 uid）+ `hash`；op=add 时 body 额外 `followsubmit=true` |
 | 代码 | `lib/api/home/follow/{http,parse,export}.dart`（`submitFollow` / `submitUnfollow` / `getFollowStatusPage`；导出层为 `followUser` / `unfollowUser` / `getFollowStatus`） |
 | UI 落点 | `lib/pages/user/user_profile_page.dart`（`_loadFollowStatus` / `_toggleFollow`，乐观更新 + 失败回滚）+ `user_profile_sections_extra.dart`（头部操作区关注项） |
 
 要点：
 
-- **按钮状态判定**：个人主页 `#ct` 内关注按钮带 `flw_btn_unfo`（已收听）或 `flw_btn_fo`（未收听）类名，`parseFollowStatus` 据此返回 `isFollowing`；按钮 `href` 中 `hash={十六进制串}` 是写操作目标参数（Discuz 关注防伪串，非 formhash），用 `RegExp(r'hash=([0-9a-f]+)')` 提取。
-- **WAF 前置要求（与留言板同约定）**：站点为阿里云 ESA WAF 前置，写 POST 必须同时满足 PC UA（`Site.uaPc`）+ `Content-Type: application/x-www-form-urlencoded` + `X-Requested-With: XMLHttpRequest` + Referer，否则被 WAF 拦成挑战页（见 docs/21、`home/wall/http.dart` 注释）。
+- **参数契约（以 Discuz 官方 `source/include/spacecp/spacecp_follow.php` 为准）**：
+
+  ```php
+  // op=add
+  $followuid = intval($_GET['fuid']);
+  if($_GET['hash'] != FORMHASH || empty($followuid)) exit('Access Denied');
+  // op=del
+  $delfollowuid = intval($_GET['fuid']);
+  if(empty($delfollowuid)) exit('Access Denied');
+  ```
+
+  由此得两条硬约束：
+
+  1. **`fuid` 必填** —— 只给 `hash` 不给 `fuid` 会被判 Access Denied，这是旧版「点了没反应」的根因。
+  2. **`hash` 不是独立令牌，它必须等于页面 `formhash`**（`$_GET['hash'] != FORMHASH`）。
+     从按钮 `href` 解析出的 `hash` 与 `input[name=formhash]` 是同一个值，但以 `formhash` 为准更稳（href 可能被模板省略）。
+     取关分支只校验 `fuid` 非空、不校验 `hash`，仍一并带上以兼容开启额外校验的站点插件。
+
+- **按钮定位（三级回退）**：① `#ct a.flw_btn_unfo` / `#ct a.flw_btn_fo`；② 全文档 `a[id^="a_followmod_"]`；
+  ③ 遍历 `a[href*="ac=follow"]` 且 href 含 `op=add|del`。站点模板差异（PC / `mobile=2`）会把按钮渲染到 `#ct` 之外，
+  只认第一级会导致 `isFollowing` 恒 null，UI 便整块隐藏关注入口 —— 即用户反馈的「用户主页没有关注按钮」。
+
+- **按钮状态判定**：优先看 `href` 的 `op=`（`op=del` → 已收听，`op=add` → 未收听），比 class 更可靠；
+  两者都缺失时才回退到 `flw_btn_unfo` class。`hash` 用 `RegExp(r'[?&]hash=([0-9a-zA-Z]+)')` 提取，
+  `fuid` 用 `RegExp(r'[?&]fuid=(\d+)')`。
+
+- **`canFollow`**：`parseFollowStatus` 额外返回 `canFollow`（= `fuid` 与 `formhash` 均非空），供调用方判断写操作是否就绪。
+
+- **WAF 前置要求（与留言板同约定）**：站点为阿里云 ESA WAF 前置，写 POST 必须同时满足 PC UA（`Site.uaPc`）
+  + `Content-Type: application/x-www-form-urlencoded` + `X-Requested-With: XMLHttpRequest` + Referer，
+  否则被 WAF 拦成挑战页（见 docs/21、`home/wall/http.dart` 注释）。
+
 - **响应解析**：inajax XML，成功为 `succeedhandle_…`，可直接交 `parseSubmitResponse`。
-- **失败兜底**：`isFollowing == null`（未登录或按钮未渲染，如查看自己/游客）时 UI 不显示关注项；收听态加载失败静默降级（`AppLogger.w`），不阻断主页加载。
+
+- **失败兜底**：关注项渲染只要求 `uid` 可用（不再依赖 `isFollowing != null`）；`isFollowing == null` 时按「未收听」展示，
+  写操作 `fuid` 用页面 uid 兜底、`hash` 用 `formhash` 兜底；点击时若令牌仍未就绪则提示「关注信息未就绪，请稍候或刷新」。
+  收听态加载失败静默降级（`AppLogger.w`），不阻断主页加载。

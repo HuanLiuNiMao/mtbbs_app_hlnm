@@ -194,15 +194,28 @@ extension on _UserProfilePageState {
             );
           },
         ),
-      // 关注/取消收听（仅他人视角且已解析到关注态时显示；
-      // 数据来自 PC 模板 profile 页，见 _loadFollowStatus）
-      if (!isSelf && _uidNum != null && _isFollowing != null)
+      // 关注/取消收听（仅他人视角显示）。
+      //
+      // ⚠️ 渲染条件**不能**依赖 `_isFollowing != null`：
+      // 站点模板差异会让按钮 DOM 出现在 `#ct` 之外，解析失败时
+      // `_isFollowing` 为 null，旧条件会让按钮整块消失
+      // （用户反馈的「主页没有关注按钮」就是这个原因）。
+      // 写接口只需 formhash + fuid，解析不到状态时用本页 uid 兜底，
+      // 因此这里只要求 uid 可用。
+      if (!isSelf && _uidNum != null)
         _actionItem(
           icon: _isFollowing == true
               ? Icons.person_remove_outlined
               : Icons.person_add_alt_1_outlined,
-          label: _followLoading ? '处理中…' : (_isFollowing == true ? '已收听' : '收听TA'),
-          onTap: _followLoading ? null : _toggleFollow,
+          label: _followLoading
+              ? '处理中…'
+              : (_isFollowing == true ? '已收听' : '收听TA'),
+          onTap: _followLoading
+              ? null
+              : () {
+                  if (_guardReadOnly()) return;
+                  _toggleFollow();
+                },
         ),
     ];
   }

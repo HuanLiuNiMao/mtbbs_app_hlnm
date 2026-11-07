@@ -25,20 +25,33 @@ Future<Response<String>> getFollowList(
 /// 写操作必须 PC UA + form 编码 + X-Requested-With
 /// （与 home/wall/http.dart 同一约定，否则被 WAF 拦成挑战页）。
 ///
-/// [hashUid] 为加密后的目标 uid（Discuz "收听"操作使用 hash 过的 uid，
-/// 从他人主页 HTML 解析获得）。
-/// [formhash] 为页面全局令牌，同样从他人主页 HTML 解析获得。
+/// ## 参数来源（对齐 Discuz 官方 `source/include/spacecp/spacecp_follow.php`）
+///
+/// ```php
+/// // op=add
+/// $followuid = intval($_GET['fuid']);
+/// if($_GET['hash'] != FORMHASH || empty($followuid)) exit('Access Denied');
+/// // op=del
+/// $delfollowuid = intval($_GET['fuid']);
+/// if(empty($delfollowuid)) exit('Access Denied');
+/// ```
+///
+/// 两条硬约束：
+/// 1. **`fuid` 是目标用户 uid，必填** —— 只给 hash 不给 fuid 会被判 Access Denied，
+///    这也是早期版本「点了没反应」的根因。
+/// 2. **`hash` 不是独立令牌，它必须等于页面 formhash**（`$_GET['hash'] != FORMHASH`）。
+///    因此调用方把同一个 formhash 同时作为 `hash` 与 `formhash` 传入即可；
+///    从按钮 href 里解析出的 hash 与 `input[name=formhash]` 是同一个值，
+///    但**以 formhash 为准**更稳（href 可能被模板省略）。
 Future<Response<String>> submitFollow(
   Dio dio, {
-  required String hashUid,
+  required String fuid,
   required String formhash,
 }) {
   return dio.post<String>(
-    '/home.php?mod=spacecp&ac=follow&op=add&hash=$hashUid&inajax=1',
-    data: {
-      'formhash': formhash,
-      'followsubmit': 'true',
-    },
+    '/home.php?mod=spacecp&ac=follow&op=add'
+    '&hash=$formhash&fuid=$fuid&handlekey=followmod&inajax=1',
+    data: {'formhash': formhash, 'followsubmit': 'true'},
     options: Options(
       headers: {
         'User-Agent': Site.uaPc,
@@ -51,16 +64,18 @@ Future<Response<String>> submitFollow(
 }
 
 /// 取消关注
+///
+/// 取关分支不校验 hash（只校验 fuid 非空），但仍带上 formhash，
+/// 以兼容开启了额外校验的站点/插件。
 Future<Response<String>> submitUnfollow(
   Dio dio, {
-  required String hashUid,
+  required String fuid,
   required String formhash,
 }) {
   return dio.post<String>(
-    '/home.php?mod=spacecp&ac=follow&op=del&hash=$hashUid&inajax=1',
-    data: {
-      'formhash': formhash,
-    },
+    '/home.php?mod=spacecp&ac=follow&op=del'
+    '&hash=$formhash&fuid=$fuid&handlekey=followmod&inajax=1',
+    data: {'formhash': formhash},
     options: Options(
       headers: {
         'User-Agent': Site.uaPc,

@@ -20,15 +20,19 @@ Future<Map<String, dynamic>> getFollowList(
 
 /// 关注（收听）
 ///
-/// [hashUid] / [formhash] 来自 `parseFollowStatus` 的解析结果。
+/// [fuid] 是**目标用户 uid**（Discuz `spacecp_follow.php` 里 `$_GET['fuid']`，
+/// 为空直接 Access Denied）；[formhash] 是页面全局令牌，它同时充当 `hash`
+/// （源码判据 `$_GET['hash'] != FORMHASH`）。
+///
+/// 两个参数都来自 `getFollowStatus` 的解析结果。
 Future<Map<String, dynamic>> followUser(
   Dio dio, {
-  required String hashUid,
+  required String fuid,
   required String formhash,
 }) async {
   final resp = await http.submitFollow(
     dio,
-    hashUid: hashUid,
+    fuid: fuid,
     formhash: formhash,
   );
   final r = parseSubmitResponse(safeDecode(resp));
@@ -36,14 +40,16 @@ Future<Map<String, dynamic>> followUser(
 }
 
 /// 取消关注（取消收听）
+///
+/// [fuid] 同样是目标用户 uid（取关分支只校验它非空，不校验 hash）。
 Future<Map<String, dynamic>> unfollowUser(
   Dio dio, {
-  required String hashUid,
+  required String fuid,
   required String formhash,
 }) async {
   final resp = await http.submitUnfollow(
     dio,
-    hashUid: hashUid,
+    fuid: fuid,
     formhash: formhash,
   );
   final r = parseSubmitResponse(safeDecode(resp));
@@ -52,7 +58,8 @@ Future<Map<String, dynamic>> unfollowUser(
 
 /// 查询关注状态与操作令牌（拉取他人主页 PC 页面并解析）
 ///
-/// 返回：`isFollowing`（true/false/null=未渲染按钮）、`followHash`、`formhash`。
+/// 返回：`isFollowing`（true/false/null=页面没有按钮）、`followHash`、
+/// `formhash`、`fuid`（回显目标 uid，便于写操作直接用）。
 Future<Map<String, dynamic>> getFollowStatus(Dio dio, String uid) async {
   final resp = await http.getFollowStatusPage(dio, uid);
   return parseWithLog(resp, parse.parseFollowStatus);
