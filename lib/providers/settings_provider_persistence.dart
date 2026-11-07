@@ -240,7 +240,7 @@ extension SettingsPersistence on SettingsProvider {
     // 把持久化的渠道选择同步给更新服务；解析失败（脏数据/旧版本）按「跟随构建」处理，
     // 不能让一个非法字符串把更新检查整个卡死。
     UpdateService.instance.applyChannelOverride(
-      UpdateChannel.parseChannel(_updateChannel),
+      UpdateConfig.parseChannel(_updateChannel),
     );
     _skippedUpdateVersion = a.advanced.skippedUpdateVersion;
     _lastUpdateCheckAt = a.advanced.lastUpdateCheckAt;
@@ -437,7 +437,7 @@ extension SettingsPersistence on SettingsProvider {
     _updateChannel = channel;
     // 先同步给服务层，再落盘：保证 UI 立刻按新渠道的策略渲染
     UpdateService.instance.applyChannelOverride(
-      UpdateChannel.parseChannel(channel),
+      UpdateConfig.parseChannel(channel),
     );
     await _persistApp();
     _notify();
