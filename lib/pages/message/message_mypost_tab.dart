@@ -197,7 +197,7 @@ class _MypostTabState extends State<MypostTab>
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 ),
-              )
+              ),
             // 命中评论屏蔽词时**默认什么都不渲染**（不留占位框）。
             //
             // 早期这里画一整行「回帖内容已屏蔽（命中评论屏蔽词）」，在卡片里
