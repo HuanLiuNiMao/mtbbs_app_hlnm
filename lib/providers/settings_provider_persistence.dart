@@ -38,6 +38,12 @@ extension SettingsPersistence on SettingsProvider {
 
     // 2. 应用设置 + 各站点设置（文档不存在时使用默认值）
     await _settings.loadAll(_sites.map((s) => s.host));
+    // 备份设置独立成 KV 键 `backupSettings`（见 BackupSettingsStore），
+    // 不随 AppSettings 一起读：备份是本 fork 的附加能力，挂在 AppSettings
+    // 里会让上游每次改 AppSettings 都产生合并冲突。
+    // load() 内部带旧位置迁移（app_settings.backup → backupSettings）。
+    // 必须在 _applyAppSettings 之前完成，后者只读缓存。
+    await BackupSettingsStore.instance.load();
     _applyAppSettings(_settings.app);
 
     // 3. 当前站点：用 host 定位，站点排序/删除后不漂移
@@ -233,13 +239,10 @@ extension SettingsPersistence on SettingsProvider {
     _skippedUpdateVersion = a.advanced.skippedUpdateVersion;
     _lastUpdateCheckAt = a.advanced.lastUpdateCheckAt;
     _developerMode = a.advanced.developerMode;
-    // 备份/恢复设置（勾选项、Web 服务器、日志保留天数）：从文档读回，
-    // 漏了这一行会表现为「重启后勾选状态与服务器配置全丢」
-    // 备份设置已独立成 KV 键 `backupSettings`（见 BackupSettingsStore），
-    // 不随 AppSettings 一起读：备份是本 fork 的附加能力，挂在 AppSettings
-    // 里会让上游每次改 AppSettings 都产生合并冲突。
-    // load() 内部带旧位置迁移（app_settings.backup → backupSettings）。
-    _backup = await BackupSettingsStore.instance.load();
+    // 备份/恢复设置（勾选项、Web 服务器、日志保留天数）：已在 load() 里
+    // 通过 `BackupSettingsStore.instance.load()` 读好，这里只取缓存。
+    // 漏了这一行会表现为「重启后勾选状态与服务器配置全丢」。
+    _backup = BackupSettingsStore.instance.current;
     BackupService.instance.keepDays = _backup.logKeepDays;
   }
 

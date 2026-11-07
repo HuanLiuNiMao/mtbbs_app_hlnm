@@ -8,6 +8,8 @@ import 'package:mtbbs/models/editor_snapshot.dart';
 import 'package:mtbbs/models/managed_item.dart';
 import 'package:mtbbs/models/settings/app_settings.dart';
 import 'package:mtbbs/services/backup/backup_registry.dart';
+import 'package:mtbbs/services/backup/backup_settings_store.dart';
+import 'package:mtbbs/models/settings/backup_settings.dart';
 import 'package:mtbbs/services/data_portability.dart';
 
 /// 各备份项的 collect / apply 实现。
@@ -115,8 +117,32 @@ const List<BackupItemHandler> backupCollectors = [
 
 // ==================== 应用设置 ====================
 
-Future<Map<String, dynamic>> _collectAppSettings(BackupContext ctx) async =>
-    ctx.repo.app.toMap();
+/// `AppSettings` 之外，还带一份 `backupSettings` 子键。
+///
+/// 备份设置（勾选项 / Web 服务器 / 定时策略 / 日志保留天数）已从
+/// `AppSettings.backup` 迁到独立 KV 键 `backupSettings`（见
+/// `BackupSettingsStore`），目的是让 `AppSettings` 与上游同构、减少合并冲突。
+/// 但它仍然属于「应用设置」这个备份项：**不带上就等于用户恢复后备份配置全丢**
+/// （勾选项回到默认、Web 服务器地址与鉴权值消失、定时任务被取消）。
+///
+/// 用独立子键而不是塞回 `AppSettings` 的 map 里，是为了让旧版 App（以及上游）
+/// 读这个 payload 时能安全忽略它。
+Future<Map<String, dynamic>> _collectAppSettings(BackupContext ctx) async {
+  final out = ctx.repo.app.toMap();
+  // 旧备份包兼容：老版本把备份配置写在 app_settings 文档的 'backup' 子文档里，
+  // 这里显式剥掉，避免「读旧包 → 写回死字段」。
+  out.remove('backup');
+  final raw = await ctx.db.getSetting(BackupSettingsStore.storageKey);
+  if (raw != null && raw.isNotEmpty) {
+    try {
+      out[BackupSettingsStore.storageKey] =
+          jsonDecode(raw) as Map<String, dynamic>;
+    } catch (e) {
+      AppLogger.w('BACKUP', '备份设置解析失败，跳过该项: $e');
+    }
+  }
+  return out;
+}
 
 Future<BackupApplyResult> _applyAppSettings(
   BackupContext ctx,
@@ -126,8 +152,13 @@ Future<BackupApplyResult> _applyAppSettings(
   if (payload.isEmpty) {
     return const BackupApplyResult(key: 'app_settings', skipped: 1);
   }
+  // 先摘出 backupSettings 子键（不是 AppSettings 的字段，喂给 fromMap 会被忽略，
+  // 但也别让它参与 _mergeAppSettings 的 map 合并）。
+  final backupPayload = payload[BackupSettingsStore.storageKey];
+  final appPayload = Map<String, dynamic>.of(payload)
+    ..remove(BackupSettingsStore.storageKey);
   final current = ctx.repo.app;
-  final incoming = AppSettings.fromMap(payload);
+  final incoming = AppSettings.fromMap(appPayload);
   // 「本机专属」数据不能被备份包覆盖：
   // currentSiteHost 指向的站点在本机可能不存在，导入后会导致启动落在空站点。
   //
@@ -138,6 +169,17 @@ Future<BackupApplyResult> _applyAppSettings(
       ? incoming.copyWith(currentSiteHost: current.currentSiteHost)
       : _mergeAppSettings(current, incoming);
   await ctx.repo.setApp(next);
+  // 备份设置：包里有就写，没有就保持本机现状（与「未勾选的项不动本机数据」一致）
+  if (backupPayload is Map) {
+    try {
+      final value = BackupSettings.fromMap(
+        backupPayload.cast<String, dynamic>(),
+      );
+      await BackupSettingsStore.instance.save(value);
+    } catch (e) {
+      AppLogger.w('BACKUP', '备份设置应用失败（已跳过）: $e');
+    }
+  }
   return const BackupApplyResult(
     key: 'app_settings',
     applied: 1,

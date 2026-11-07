@@ -11,6 +11,9 @@ import 'package:mtbbs/core/utils/history_filter.dart';
 import 'package:mtbbs/widgets/common/filter_search_field.dart';
 import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 import 'package:mtbbs/widgets/layout/state_views.dart';
+import 'package:mtbbs/core/app/app_page_gate.dart';
+import 'package:mtbbs/widgets/common/toast_utils.dart';
+import 'package:mtbbs/pages/user/user_uid_picker_dialog.dart';
 
 /// 浏览历史记录页面
 ///
