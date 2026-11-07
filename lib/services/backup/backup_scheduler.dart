@@ -65,6 +65,13 @@ void backupCallbackDispatcher() {
 /// 全部读盘完成后再做网络请求，期间不碰任何 UI 对象。
 /// 返回 true 表示「本次任务已正常处理」（含「按配置跳过」），
 /// 只有真正需要系统重试的错误才返回 false——见上面的调用点。
+/// 某个通道是否已到执行时间（实现在 `BackupSchedulePolicy.isDueAt`，便于单测）。
+///
+/// 注意必须是**顶层**函数：调用方 [runScheduledBackup] 本身就是顶层函数，
+/// 挂在 `BackupScheduler` 类里的私有方法它访问不到。
+bool _isDue(BackupSchedulePolicy schedule) =>
+    schedule.isDueAt(DateTime.now());
+
 Future<bool> runScheduledBackup({bool force = false}) async {
   final sites = await _loadSites();
   final hosts = [for (final s in sites) s.host];
@@ -424,10 +431,6 @@ class BackupScheduler {
     final m = schedule.intervalMinutes;
     return m < 15 ? 15 : m;
   }
-
-  /// 某个通道是否已到执行时间（实现见 `BackupSchedulePolicy.isDueAt`）
-  bool _isDue(BackupSchedulePolicy schedule) =>
-      schedule.isDueAt(DateTime.now());
 
   /// 两条通道合并成「一个」系统周期：取较短的。
   ///
