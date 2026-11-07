@@ -34,6 +34,8 @@ import 'package:mtbbs/platform/optional/secure_store.dart';
 import 'package:mtbbs/services/backup/backup_service.dart';
 import 'package:mtbbs/services/backup/backup_scheduler.dart';
 import 'package:mtbbs/services/backup/backup_web_client.dart';
+import 'package:mtbbs/config/update_config.dart';
+import 'package:mtbbs/services/update_service.dart';
 
 part 'settings_provider_accessors.dart';
 part 'settings_provider_backup.dart';
@@ -239,6 +241,10 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 启动时自动检查更新（需构建注入更新源，且受 1 小时限流，见 UpdateService）
   bool _autoCheckUpdate = true;
+
+  /// 用户选择的更新渠道；空串 = 跟随构建期注入的渠道（保持既有行为）。
+  /// 见 [AdvancedSettings.updateChannel] 与 `UpdateService.effectiveChannel`。
+  String _updateChannel = '';
 
   /// 用户跳过的新版本 tag（自动检查不再提示；'' = 未跳过）
   String _skippedUpdateVersion = '';
