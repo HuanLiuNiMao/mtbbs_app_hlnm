@@ -152,6 +152,8 @@ class SessionRegistry {
       _sessions['$host|$kAnonScopeAccount'] = FixedSiteSession(
         host: host,
         baseUrl: baseUrl,
+        // 匿名会话与登录会话共用同一站点的编码设置，否则验证码/题面解码会不一致
+        charset: siteForHost(host)?.effectiveCharset ?? 'utf-8',
         accountName: null,
         uid: '0',
         username: '',
