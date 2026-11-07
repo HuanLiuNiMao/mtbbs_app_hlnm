@@ -287,6 +287,38 @@ class CommentFilterConfig {
       );
 }
 
+/// 旧版内置词表合并成的那条正则的前缀。
+///
+/// 旧版会把整份内置词表压成一条 `康康看下|…` 正则预填进屏蔽词，用户升级后
+/// 必须剔除它 —— 否则表现为「内置词没删掉」。
+const String kLegacyBuiltinKeywordPrefix = '康康看下|';
+
+/// 把旧版裸词表（`commentFilterKeywords`）继承进新版配置的屏蔽词。
+///
+/// 纯函数，便于测试；实际读写在 `SettingsProvider.load` 里。
+///
+/// 规则：
+/// 1. 逐条 trim，丢空串；
+/// 2. 剔除旧版内置词（以 [kLegacyBuiltinKeywordPrefix] 开头的那条）；
+/// 3. 与 [current] 去重合并，**旧词在前**（旧词更早建立，用户对顺序有记忆），
+///    已在新配置里的同名词不会重复出现。
+///
+/// 传空 [legacy] 时原样返回 [current]（幂等：旧键已被删掉时不会改变现状）。
+List<String> mergeLegacyKeywords(List<String> legacy, List<String> current) {
+  final cleaned = legacy
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty && !l.startsWith(kLegacyBuiltinKeywordPrefix))
+      .toList();
+  if (cleaned.isEmpty) return List<String>.of(current);
+
+  final merged = <String>[];
+  final seen = <String>{};
+  for (final w in [...cleaned, ...current]) {
+    if (seen.add(w)) merged.add(w);
+  }
+  return merged;
+}
+
 /// 屏蔽词当前是否应作用于「这个主题」。
 ///
 /// - 总开关关闭 → false；

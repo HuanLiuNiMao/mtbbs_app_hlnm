@@ -5,7 +5,6 @@ import 'package:mtbbs/core/app/avatar_url.dart';
 import 'package:mtbbs/core/app/default_config.dart';
 import 'package:mtbbs/core/utils/shortcut_helper.dart';
 import 'package:mtbbs/models/managed_item.dart';
-import 'package:mtbbs/models/settings/backup_settings.dart';
 import 'package:mtbbs/models/settings/settings_defaults.dart';
 
 /// 应用设置（与站点、账号无关）
@@ -25,9 +24,6 @@ class AppSettings {
   final HistorySettings history;
   final AdvancedSettings advanced;
 
-  /// 备份/恢复相关设置（勾选项、Web 备份服务器、日志保留）
-  final BackupSettings backup;
-
   const AppSettings({
     this.schemaVersion = 1,
     this.currentSiteHost = '',
@@ -40,7 +36,6 @@ class AppSettings {
     required this.share,
     required this.history,
     required this.advanced,
-    required this.backup,
   });
 
   static AppSettings defaults() => AppSettings(
@@ -53,7 +48,6 @@ class AppSettings {
     share: ShareSettings.defaults(),
     history: HistorySettings.defaults(),
     advanced: AdvancedSettings.defaults(),
-    backup: BackupSettings.defaults(),
   );
 
   /// 局部替换（备份项只改一两个子文档时用，避免手抄十个子对象）
@@ -68,7 +62,6 @@ class AppSettings {
     ShareSettings? share,
     HistorySettings? history,
     AdvancedSettings? advanced,
-    BackupSettings? backup,
   }) => AppSettings(
     schemaVersion: schemaVersion,
     currentSiteHost: currentSiteHost ?? this.currentSiteHost,
@@ -81,7 +74,6 @@ class AppSettings {
     share: share ?? this.share,
     history: history ?? this.history,
     advanced: advanced ?? this.advanced,
-    backup: backup ?? this.backup,
   );
 
   Map<String, dynamic> toMap() => {
@@ -96,7 +88,6 @@ class AppSettings {
     'share': share.toMap(),
     'history': history.toMap(),
     'advanced': advanced.toMap(),
-    'backup': backup.toMap(),
   };
 
   factory AppSettings.fromMap(Map<String, dynamic> map) {
@@ -114,8 +105,6 @@ class AppSettings {
       share: ShareSettings.fromMap(sub('share')),
       history: HistorySettings.fromMap(sub('history')),
       advanced: AdvancedSettings.fromMap(sub('advanced')),
-      // 旧文档无 backup 键 → null → 默认勾选项（向后兼容）
-      backup: BackupSettings.fromMap((map['backup'] as Map?)?.cast<String, dynamic>()),
     );
   }
 }

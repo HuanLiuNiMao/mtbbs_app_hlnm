@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 /// 只有**叶子项**会写进备份包（`payloadKey` 非空）；分组父（如
 /// [browseHistory]）仅用于 UI 聚合，不产生 payload。
 ///
-/// 枚举名会随「设置持久化」写进 `AppSettings.backup.selected`，因此
+/// 枚举名会随「设置持久化」写进 `backupSettings.selected`（独立 KV 键，
+/// 见 `BackupSettingsStore`），因此
 /// **不要改名**：改名等价于用户丢掉该项的勾选状态（会回落到默认值）。
 /// 备份包内的键名另由 [BackupItemSpec.payloadKey] 定义，与枚举名解耦。
 enum BackupItemId {

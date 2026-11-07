@@ -71,32 +71,48 @@ extension SettingsPersistence on SettingsProvider {
     // （开关开、无触发方式限制、无屏蔽词 = 不过滤）。
     _commentFilter = const CommentFilterConfig();
     final rawCommentFilter = await _db.getSetting('commentFilter');
+    var hadConfig = false;
     if (rawCommentFilter != null && rawCommentFilter.isNotEmpty) {
       try {
         _commentFilter = CommentFilterConfig.fromJson(
           jsonDecode(rawCommentFilter) as Map<String, dynamic>,
         );
+        hadConfig = true;
       } catch (_) {
         // 损坏时保持默认（不影响其他设置项）
       }
-    } else {
-      // 从旧版（commentFilterKeywords + commentBlockEnabled）迁移一次：
-      // 旧版有内置词表预填，其中「内置词合并成的那条正则」以「康康看下|」
-      // 开头，属于被移除的内置默认词，必须剔除——否则旧用户升级后表现为
-      // 「内置词没删掉」。剔除后剩下的才是用户自己加的词。
-      final legacyKeywords = _decodeStringList(
-        await _db.getSetting('commentFilterKeywords'),
+    }
+
+    // ---- 旧版屏蔽词继承（幂等，可重复执行）----
+    //
+    // 旧版把屏蔽词裸存在 `commentFilterKeywords`（JSON 数组）+ 开关
+    // `commentBlockEnabled`。这里把它们并入 `commentFilter`，然后删除旧键。
+    //
+    // ⚠️ 这段**不能**只写在「commentFilter 不存在」的分支里：
+    // 升级后只要该键被写过一次空配置（用户点开过屏蔽页、或导入过空备份），
+    // 旧词就再也读不到了 —— 表现为「更新版本后屏蔽词消失」，且旧键随后被
+    // 删除，数据彻底丢失。所以判据改为「旧键还在就尝试继承」。
+    //
+    // 旧版有内置词表预填，其中「内置词合并成的那条正则」以「康康看下|」
+    // 开头，属于被移除的内置默认词，必须剔除 —— 否则老用户升级后表现为
+    // 「内置词没删掉」。剔除后剩下的才是用户自己加的词。
+    final legacyRaw = await _db.getSetting('commentFilterKeywords');
+    if (legacyRaw != null) {
+      // 剔除旧版内置词 + 去重合并（旧词在前），纯函数见 content_filter.dart
+      final merged = mergeLegacyKeywords(
+        _decodeStringList(legacyRaw),
+        _commentFilter.keywords,
       );
-      final migrated = legacyKeywords
-          .map((l) => l.trim())
-          .where((l) => l.isNotEmpty && !l.startsWith('康康看下|'))
-          .toList();
-      final legacyEnabled =
-          (await _db.getSettingBool('commentBlockEnabled')) ?? true;
-      _commentFilter = CommentFilterConfig(
-        enabled: legacyEnabled,
-        keywords: migrated,
-      );
+      if (merged.length != _commentFilter.keywords.length) {
+        _commentFilter = _commentFilter.copyWith(keywords: merged);
+      }
+      if (!hadConfig) {
+        // 首次迁移时把旧开关也继承过来（默认开，与旧版一致）
+        final legacyEnabled =
+            (await _db.getSettingBool('commentBlockEnabled')) ?? true;
+        _commentFilter = _commentFilter.copyWith(enabled: legacyEnabled);
+        hadConfig = true;
+      }
       await _db.setSetting(
         'commentFilter',
         jsonEncode(_commentFilter.toJson()),
@@ -219,7 +235,11 @@ extension SettingsPersistence on SettingsProvider {
     _developerMode = a.advanced.developerMode;
     // 备份/恢复设置（勾选项、Web 服务器、日志保留天数）：从文档读回，
     // 漏了这一行会表现为「重启后勾选状态与服务器配置全丢」
-    _backup = a.backup;
+    // 备份设置已独立成 KV 键 `backupSettings`（见 BackupSettingsStore），
+    // 不随 AppSettings 一起读：备份是本 fork 的附加能力，挂在 AppSettings
+    // 里会让上游每次改 AppSettings 都产生合并冲突。
+    // load() 内部带旧位置迁移（app_settings.backup → backupSettings）。
+    _backup = await BackupSettingsStore.instance.load();
     BackupService.instance.keepDays = _backup.logKeepDays;
   }
 
@@ -298,7 +318,6 @@ extension SettingsPersistence on SettingsProvider {
       lastUpdateCheckAt: _lastUpdateCheckAt,
       developerMode: _developerMode,
     ),
-    backup: _backup,
   );
 
   Future<void> _persistApp() => _settings.setApp(_buildAppSettings());

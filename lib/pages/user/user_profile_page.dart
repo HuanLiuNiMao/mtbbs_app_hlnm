@@ -17,6 +17,7 @@ import 'package:mtbbs/api/home/follow/export.dart' as follow_api;
 import 'package:mtbbs/auth/providers/auth_provider.dart';
 import 'package:mtbbs/models/user_profile.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
+import 'package:mtbbs/core/utils/clipboard_helper.dart';
 import 'package:mtbbs/models/browse_record.dart';
 import 'package:mtbbs/providers/history_provider.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';

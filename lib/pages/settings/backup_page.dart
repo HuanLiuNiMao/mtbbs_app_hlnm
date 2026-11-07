@@ -32,7 +32,9 @@ import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 /// 3. **Web 备份**：用户自备服务器的地址 / 鉴权 / 间隔 / 仅 Wi-Fi / 附带日志。
 ///
 /// 设计约束（见 docs/28）：
-/// - 勾选状态只落 `AppSettings.backup`，不新增 SharedPreferences；
+/// - 勾选状态只落独立 KV 键 `backupSettings`（`BackupSettingsStore`），
+///   不新增 SharedPreferences；也不挂在 `AppSettings` 里（那是上游的文件，
+///   加 fork 专属字段会让每次上游合并都冲突）；
 /// - 服务层不读 provider（`BackupService.keepDays` 由 provider 注入）；
 /// - 所有按钮都 await 服务层并回写「上次备份时间 / 上次上传结果」，
 ///   保证页面刷新后用户能看到上次结果，而不是只有一次性的 toast。

@@ -11,6 +11,7 @@ import 'package:mtbbs/models/backup/backup_item.dart';
 import 'package:mtbbs/models/settings/backup_settings.dart';
 import 'package:mtbbs/services/backup/backup_service.dart';
 import 'package:mtbbs/services/backup/backup_web_client.dart';
+import 'package:mtbbs/services/backup/backup_settings_store.dart';
 import 'package:workmanager/workmanager.dart';
 
 /// 后台任务的 taskName（传给 `executeTask` 的值，用于区分本应用注册的多个任务）
@@ -55,7 +56,7 @@ void backupCallbackDispatcher() {
 /// 因此这里必须：
 /// 1. 从 `DatabaseHelper` 读站点列表（`app_sites` KV），填 `SiteStore`；
 /// 2. `SettingsRepository.instance.loadAll(hosts)` 把应用设置读进内存；
-/// 3. 从读到的 `AppSettings.backup` 判断是否该跑、跑哪些项。
+/// 3. 从 `BackupSettingsStore` 读到的备份配置判断是否该跑、跑哪些项。
 ///
 /// 全部读盘完成后再做网络请求，期间不碰任何 UI 对象。
 /// 返回 true 表示「本次任务已正常处理」（含「按配置跳过」），
@@ -65,7 +66,7 @@ Future<bool> runScheduledBackup() async {
   final hosts = [for (final s in sites) s.host];
   await SettingsRepository.instance.loadAll(hosts);
 
-  final backup = SettingsRepository.instance.app.backup;
+  final backup = await BackupSettingsStore.instance.load();
   final web = backup.web;
 
   if (!backup.webEnabled || !web.usable || !web.scheduled) {
@@ -119,25 +120,23 @@ Future<void> _writeBackRunResult({
   final iso = at.toIso8601String();
   final result = ok ? 'ok' : 'failed: $detail';
   try {
-    final app = SettingsRepository.instance.app;
-    final web = app.backup.web;
-    await SettingsRepository.instance.setApp(
-      app.copyWith(
+    // 备份配置已迁到独立 KV 键，不再经过 `AppSettings`。
+    await BackupSettingsStore.instance.update((cur) {
+      final web = cur.web;
+      return cur.copyWith(
         // Web 配置与调度策略里各留一份：UI 读前者，后台任务读后者，
         // 两处同源写入，避免出现「页面显示上次时间、实际判断用另一个字段」。
-        backup: app.backup.copyWith(
-          web: web.copyWith(
+        web: web.copyWith(
+          lastRunAt: iso,
+          lastResult: result,
+          schedule: web.schedule.copyWith(
             lastRunAt: iso,
             lastResult: result,
-            schedule: web.schedule.copyWith(
-              lastRunAt: iso,
-              lastResult: result,
-            ),
           ),
-          lastBackupAt: ok ? iso : app.backup.lastBackupAt,
         ),
-      ),
-    );
+        lastBackupAt: ok ? iso : cur.lastBackupAt,
+      );
+    });
   } catch (e) {
     AppLogger.w('BACKUP', '回写后台备份结果失败: $e');
   }

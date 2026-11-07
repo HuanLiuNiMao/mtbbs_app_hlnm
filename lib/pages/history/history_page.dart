@@ -124,6 +124,38 @@ class _HistoryPageState extends State<HistoryPage>
   }
 
   @override
+  /// 匿名访问用户主页：输入 UID → 以**游客身份**打开该用户主页。
+  ///
+  /// 与「我的」页的同名入口逻辑一致（见 `ProfilePage._openAnonymousUserPage`）：
+  /// 区别只在 `anon=1` 参数，页面用不带登录 cookie 的 Dio 请求，
+  /// 站点侧看不到「谁来看过」，也不会因为「自己看自己」而走成本人视角。
+  ///
+  /// 放在浏览记录页是因为：用户在这里看「我刚看过谁」时，往往下一步就是想
+  /// 「不露痕迹地再看一个」，比回「我的」页找入口顺手。
+  ///
+  /// 若「用户主页」被页面接管到内置浏览器，浏览器用的是登录态，
+  /// 等于「匿名入口」变成实名访问 —— 先探测一次，命中就提示而不照跳。
+  void _openAnonymousUserPage(BuildContext context) {
+    void open(int uid) {
+      final path = withAnonParam('/user/$uid');
+      if (appPageRedirect(path) != null) {
+        showToast('当前设置下用户主页由内置浏览器打开，无法匿名访问（可在 设置 → 页面接管 开启用户主页）');
+        return;
+      }
+      context.push(path);
+    }
+
+    showDialog(
+      context: context,
+      builder: (_) => UidPickerDialog(
+        title: '匿名访问用户主页',
+        hintText: '输入要访问的 UID',
+        confirmLabel: '匿名访问',
+        onNavigateToUid: open,
+      ),
+    );
+  }
+
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     // watch 两个 Provider：记录增删与标题模板变化都要让计数/列表刷新
@@ -199,9 +231,24 @@ class _HistoryPageState extends State<HistoryPage>
             icon: const Icon(Icons.more_vert, size: 20),
             padding: EdgeInsets.zero,
             onSelected: (v) {
-              if (v == 'clear') _confirmClear(context, _tabController.index);
+              if (v == 'clear') {
+                _confirmClear(context, _tabController.index);
+              } else if (v == 'anon') {
+                _openAnonymousUserPage(context);
+              }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'anon',
+                child: const Row(
+                  children: [
+                    Icon(Icons.visibility_off_outlined, size: 18),
+                    SizedBox(width: 8),
+                    Text('匿名访问用户主页'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'clear',
                 child: Text(

@@ -128,14 +128,14 @@ Future<BackupApplyResult> _applyAppSettings(
   }
   final current = ctx.repo.app;
   final incoming = AppSettings.fromMap(payload);
-  // 两份「本机专属」数据不能被备份包覆盖：
-  // - currentSiteHost：备份包里的站点在本机可能不存在，导入后会导致启动落在空站点
-  // - backup：就是备份项勾选状态本身，覆盖会让用户下一次备份的选项莫名变化
+  // 「本机专属」数据不能被备份包覆盖：
+  // currentSiteHost 指向的站点在本机可能不存在，导入后会导致启动落在空站点。
+  //
+  // 注：备份项勾选状态（BackupSettings）已搬到独立 KV 键 `backupSettings`，
+  // 不再是 AppSettings 的字段，因此这里不需要再单独保护它 —— 它压根不在
+  // app_settings 这个 payload 里。
   final next = mode == BackupApplyMode.replace
-      ? incoming.copyWith(
-          currentSiteHost: current.currentSiteHost,
-          backup: current.backup,
-        )
+      ? incoming.copyWith(currentSiteHost: current.currentSiteHost)
       : _mergeAppSettings(current, incoming);
   await ctx.repo.setApp(next);
   return const BackupApplyResult(
@@ -149,7 +149,9 @@ Future<BackupApplyResult> _applyAppSettings(
 AppSettings _mergeAppSettings(AppSettings cur, AppSettings incoming) {
   final map = <String, dynamic>{...cur.toMap(), ...incoming.toMap()};
   map['currentSiteHost'] = cur.currentSiteHost;
-  map['backup'] = cur.backup.toMap();
+  // 旧备份包里可能仍带 'backup' 键（历史格式），AppSettings.fromMap 会忽略它；
+  // 显式删掉，避免写回文档时留下一个没人读的死字段。
+  map.remove('backup');
   return AppSettings.fromMap(map);
 }
 

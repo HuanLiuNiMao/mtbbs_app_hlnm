@@ -1,7 +1,11 @@
 import 'package:mtbbs/models/backup/backup_item.dart';
 import 'package:mtbbs/platform/optional/secure_store.dart';
 
-/// 备份相关设置 —— 持久化在 `AppSettings.backup` 子文档。
+/// 备份相关设置 —— 持久化在**独立 KV 键** `backupSettings`。
+///
+/// 不挂在 `AppSettings` 里：备份是本 fork 的附加能力，上游没有这个字段，
+/// 塞进 `AppSettings` 会让每次上游合并都在 defaults/copyWith/toMap/fromMap
+/// 四处冲突。读写入口见 `BackupSettingsStore`。
 ///
 /// 项目铁律禁止新增 SharedPreferences（见 AGENTS.md #5），因此勾选状态、
 /// Web 备份服务器配置全部走 `settings_app` 文档（等价 DataStore）。

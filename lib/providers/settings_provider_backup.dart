@@ -2,8 +2,12 @@ part of 'settings_provider.dart';
 
 /// [SettingsProvider] 的备份/恢复设置写操作。
 ///
-/// 勾选项与 Web 服务器配置都写进 `AppSettings.backup`（settings_app 文档），
-/// 不新增 SharedPreferences（AGENTS.md 铁律 5）。
+/// 勾选项与 Web 服务器配置走**独立 KV 键** `backupSettings`
+/// （见 `BackupSettingsStore`），不再塞进 `AppSettings`：
+/// 备份是本 fork 的附加能力，挂在 AppSettings 里会让上游每次改
+/// AppSettings 都产生合并冲突。
+///
+/// 仍然不新增 SharedPreferences（AGENTS.md 铁律 5）。
 extension SettingsBackup on SettingsProvider {
   BackupSettings get backupSettings => _backup;
 
@@ -14,14 +18,14 @@ extension SettingsBackup on SettingsProvider {
   Future<void> setBackupSelection(Set<BackupItemId> ids) async {
     if (_sameIds(_backup.selected, ids)) return;
     _backup = _backup.copyWith(selected: Set.of(ids));
-    await _persistApp();
+    await BackupSettingsStore.instance.save(_backup);
     _notify();
   }
 
   Future<void> setBackupWebEnabled(bool value) async {
     if (_backup.webEnabled == value) return;
     _backup = _backup.copyWith(webEnabled: value);
-    await _persistApp();
+    await BackupSettingsStore.instance.save(_backup);
     _notify();
     // 开关直接影响「是否排定时任务」，必须同步一次调度
     await BackupScheduler.instance.sync(_backup);
@@ -32,7 +36,7 @@ extension SettingsBackup on SettingsProvider {
   /// 会顺带同步系统调度：地址或周期变了要重排，关掉了要取消。
   Future<void> setWebBackupConfig(WebBackupConfig config) async {
     _backup = _backup.copyWith(web: config);
-    await _persistApp();
+    await BackupSettingsStore.instance.save(_backup);
     _notify();
     await BackupScheduler.instance.sync(_backup);
   }
@@ -89,14 +93,14 @@ extension SettingsBackup on SettingsProvider {
         ),
       ),
     );
-    await _persistApp();
+    await BackupSettingsStore.instance.save(_backup);
     _notify();
   }
 
   /// 记录上次成功备份时间（任意来源）
   Future<void> markBackupDone(DateTime at) async {
     _backup = _backup.copyWith(lastBackupAt: at.toIso8601String());
-    await _persistApp();
+    await BackupSettingsStore.instance.save(_backup);
     _notify();
   }
 
@@ -105,7 +109,7 @@ extension SettingsBackup on SettingsProvider {
     final next = days.clamp(0, 365);
     if (_backup.logKeepDays == next) return;
     _backup = _backup.copyWith(logKeepDays: next);
-    await _persistApp();
+    await BackupSettingsStore.instance.save(_backup);
     _notify();
   }
 

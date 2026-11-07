@@ -62,9 +62,35 @@ extension on _UserProfilePageState {
           ],
         ),
         const SizedBox(height: 4),
-        Text(
-          'UID: $uid',
-          style: TextStyle(fontSize: 13, color: _cs.onSurfaceVariant),
+        // UID 点击可复制：常用来在别处（浏览器 / 分享给他人 / 匿名访问
+        // 弹窗）直接粘贴，比长按选中再复制顺手。
+        InkWell(
+          onTap: uid.isEmpty
+              ? null
+              : () async {
+                  final ok = await ClipboardHelper.write(uid);
+                  if (!mounted) return;
+                  showToast(ok ? '已复制 UID: $uid' : '复制失败');
+                },
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'UID: $uid',
+                  style: TextStyle(fontSize: 13, color: _cs.onSurfaceVariant),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.copy_rounded,
+                  size: 12,
+                  color: _cs.onSurfaceVariant.withValues(alpha: 0.6),
+                ),
+              ],
+            ),
+          ),
         ),
         if (group.isNotEmpty) ...[
           const SizedBox(height: 4),
