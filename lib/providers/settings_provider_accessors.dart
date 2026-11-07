@@ -139,6 +139,9 @@ extension SettingsAccessors on SettingsProvider {
   /// 启动时是否自动检查更新（仅正式版生效）
   bool get autoCheckUpdate => _autoCheckUpdate;
 
+  /// 用户选择的更新渠道；空串 = 跟随构建。
+  String get updateChannel => _updateChannel;
+
   /// 用户已跳过的新版本 tag（'' = 未跳过）
   String get skippedUpdateVersion => _skippedUpdateVersion;
 
