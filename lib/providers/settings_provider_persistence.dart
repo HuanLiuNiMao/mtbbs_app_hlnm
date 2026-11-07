@@ -236,6 +236,12 @@ extension SettingsPersistence on SettingsProvider {
     _historyTitleFormatReply = a.history.titleFormatReply;
 
     _autoCheckUpdate = a.advanced.autoCheckUpdate;
+    _updateChannel = a.advanced.updateChannel;
+    // 把持久化的渠道选择同步给更新服务；解析失败（脏数据/旧版本）按「跟随构建」处理，
+    // 不能让一个非法字符串把更新检查整个卡死。
+    UpdateService.instance.applyChannelOverride(
+      UpdateChannel.parseChannel(_updateChannel),
+    );
     _skippedUpdateVersion = a.advanced.skippedUpdateVersion;
     _lastUpdateCheckAt = a.advanced.lastUpdateCheckAt;
     _developerMode = a.advanced.developerMode;
@@ -317,6 +323,7 @@ extension SettingsPersistence on SettingsProvider {
     ),
     advanced: AdvancedSettings(
       autoCheckUpdate: _autoCheckUpdate,
+      updateChannel: _updateChannel,
       skippedUpdateVersion: _skippedUpdateVersion,
       lastUpdateCheckAt: _lastUpdateCheckAt,
       developerMode: _developerMode,
@@ -420,6 +427,18 @@ extension SettingsPersistence on SettingsProvider {
 
   Future<void> setAutoCheckUpdate(bool enabled) async {
     _autoCheckUpdate = enabled;
+    await _persistApp();
+    _notify();
+  }
+
+  /// 设置更新渠道；传空串表示「跟随构建」（清空用户覆盖）。
+  Future<void> setUpdateChannel(String channel) async {
+    if (_updateChannel == channel) return;
+    _updateChannel = channel;
+    // 先同步给服务层，再落盘：保证 UI 立刻按新渠道的策略渲染
+    UpdateService.instance.applyChannelOverride(
+      UpdateChannel.parseChannel(channel),
+    );
     await _persistApp();
     _notify();
   }
