@@ -73,6 +73,9 @@ dependencies:
   # Markdown 解析（编辑器「导入 Markdown」→ BBCode，见 lib/core/parser/md2bbcode.dart）
   markdown: ^7.3.1
 
+  # 数学公式渲染（52pojie Markdown 帖的 LaTeX → Widget，KaTeX 的 Dart 移植）
+  flutter_math_fork: ^0.7.4
+
   # 瀑布流布局
   flutter_staggered_grid_view: ^0.7.0
 
@@ -100,6 +103,9 @@ dependencies:
   # 全平台同一 QuickJS（无 Apple JSC 分叉），须显式调小栈上限，并给不可信脚本设超时/内存上限。
   flutter_qjs_next: ^1.5.2
 
+  # 哈希（编解码工具页的 MD5/SHA-1/SHA-256，见 lib/core/utils/codec_utils.dart）
+  crypto: ^3.0.7
+
   # HTML 渲染（BBCode → HTML → Widget）
   # 代码语法高亮
   highlight: ^0.7.0
@@ -121,6 +127,15 @@ dependencies:
   # 锁 10.x：11.x 依赖 win32 ^6，与 file_picker 8.x 的 win32 ^5 冲突，
   # `flutter pub get` 会直接版本求解失败（实测）。
   flutter_secure_storage: ^10.3.4
+
+# Windows 退出崩溃修复（上游 issue #2733 / PR #2838）。
+# flutter_inappwebview_windows 0.6.0 把 WinRT/COM 资源存成静态智能指针，
+# 在 DLL_PROCESS_DETACH 阶段才析构，触发 fail-fast（0xC0000409，系统弹出
+# 「快速异常检测失败」）。third_party 副本在插件析构时提前释放这些资源。
+# 上游发布修复版后，删除本节与本目录即可（升级前先读 docs/09）。
+dependency_overrides:
+  flutter_inappwebview_windows:
+    path: third_party/flutter_inappwebview_windows
 
 dev_dependencies:
   flutter_test:
@@ -151,6 +166,7 @@ flutter:
     - assets/config/shortcuts.json
     - assets/config/cache.json
     - assets/config/quick_replies.json
+    - assets/config/site_defaults.json
     - assets/config/thanks.json
     # 致谢名单（上游项目 / 技术栈 / 底层依赖），关于页「致谢名单」二级页读取
     - assets/config/credits.json

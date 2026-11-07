@@ -1,7 +1,82 @@
 import 'package:dio/dio.dart';
+import 'package:mtbbs/core/parser/page_fetcher.dart';
 import 'package:mtbbs/core/parser/xml_helper.dart';
+import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/api/helpers.dart';
 import 'package:mtbbs/api/forum/post/http.dart' as http;
+import 'package:mtbbs/api/forum/post/parse.dart' as parse;
+
+/// 拉取编辑器页面并解析表单字段（发帖/评论/回复/编辑共用）。
+Future<PageFormData> fetchEditorPage(
+  Dio dio, {
+  required String type,
+  String fid = '',
+  String tid = '',
+  String pid = '',
+  String? repquote,
+}) async {
+  final url = PageFetcher.buildUrl(
+    type: type,
+    fid: fid,
+    tid: tid,
+    pid: pid,
+    repquote: repquote,
+  );
+  if (url.isEmpty) return const PageFormData(success: false, error: 'URL 为空');
+  final resp = await http.getEditorPage(
+    dio,
+    type: type,
+    fid: fid,
+    tid: tid,
+    pid: pid,
+    repquote: repquote,
+  );
+  return PageFetcher.parsePage(safeDecode(resp), url: url);
+}
+
+/// 提交编辑（帖子/回复）。
+Future<SubmitResult> submitEditPost(
+  Dio dio, {
+  required String fid,
+  required String tid,
+  required String pid,
+  required String formhash,
+  required String posttime,
+  required String subject,
+  required String message,
+  Map<String, String> attachNew = const {},
+  String seccodeHash = '',
+  String seccodeHashField = 'seccodehash',
+  String seccodeModId = '',
+  String seccodeVerify = '',
+  String secqaaHash = '',
+  String secanswer = '',
+}) async {
+  final resp = await http.submitEdit(
+    dio,
+    fid: fid,
+    tid: tid,
+    pid: pid,
+    formhash: formhash,
+    posttime: posttime,
+    subject: subject,
+    message: message,
+    attachNew: attachNew,
+    seccodeHash: seccodeHash,
+    seccodeHashField: seccodeHashField,
+    seccodeModId: seccodeModId,
+    seccodeVerify: seccodeVerify,
+    secqaaHash: secqaaHash,
+    secanswer: secanswer,
+  );
+  final result = parse.parseEditResponse(
+    safeDecode(resp),
+    resp.statusCode ?? 0,
+    resp.headers.value('location') ?? '',
+  );
+  AppLogger.i('PARSE', 'post edit → ${result.success} ${result.message}');
+  return result;
+}
 
 /// 发布新帖（纯提交，formhash/posttime 由调用方提供）
 Future<SubmitResult> submitNewPost(
@@ -12,6 +87,12 @@ Future<SubmitResult> submitNewPost(
   required String subject,
   required String message,
   Map<String, String> attachNew = const {},
+  String seccodeHash = '',
+  String seccodeHashField = 'seccodehash',
+  String seccodeModId = '',
+  String seccodeVerify = '',
+  String secqaaHash = '',
+  String secanswer = '',
 }) async {
   final resp = await http.submitNewThread(
     dio,
@@ -21,6 +102,12 @@ Future<SubmitResult> submitNewPost(
     subject: subject,
     message: message,
     attachNew: attachNew,
+    seccodeHash: seccodeHash,
+    seccodeHashField: seccodeHashField,
+    seccodeModId: seccodeModId,
+    seccodeVerify: seccodeVerify,
+    secqaaHash: secqaaHash,
+    secanswer: secanswer,
   );
   return parseSubmitResponse(safeDecode(resp));
 }
@@ -38,6 +125,12 @@ Future<SubmitResult> submitReply(
   String? noticeauthormsg,
   String? reppid,
   Map<String, String> attachNew = const {},
+  String seccodeHash = '',
+  String seccodeHashField = 'seccodehash',
+  String seccodeModId = '',
+  String seccodeVerify = '',
+  String secqaaHash = '',
+  String secanswer = '',
 }) async {
   final resp = await http.submitReply(
     dio,
@@ -51,6 +144,12 @@ Future<SubmitResult> submitReply(
     noticeauthormsg: noticeauthormsg,
     reppid: reppid,
     attachNew: attachNew,
+    seccodeHash: seccodeHash,
+    seccodeHashField: seccodeHashField,
+    seccodeModId: seccodeModId,
+    seccodeVerify: seccodeVerify,
+    secqaaHash: secqaaHash,
+    secanswer: secanswer,
   );
   return parseSubmitResponse(safeDecode(resp));
 }

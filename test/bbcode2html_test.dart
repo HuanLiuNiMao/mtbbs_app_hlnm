@@ -2,6 +2,36 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mtbbs/core/parser/bbcode2html.dart';
 
 void main() {
+  group('BBCode2Html - 数学公式', () {
+    test('块级 math appdata → div 占位 + mathBlocks 记录原文', () {
+      final converter = BBCode2Html();
+      final html = converter.convert(
+        r'[appdata]{"type":"math","tex":"\\frac{a}{b}","display":true}[/appdata]',
+      );
+      expect(html, contains('<div class="bbcode-math" data-math-index="0"'));
+      expect(converter.mathBlocks.length, 1);
+      expect(converter.mathBlocks.first.tex, r'\frac{a}{b}');
+      expect(converter.mathBlocks.first.display, isTrue);
+    });
+
+    test('行内 math appdata → span 占位，保留在段落内', () {
+      final converter = BBCode2Html();
+      final html = converter.convert(
+        r'点在 [appdata]{"type":"math","tex":"$x_{0}$","display":false}[/appdata] 处',
+      );
+      expect(html, contains('<span class="bbcode-math" data-math-index="0"'));
+      expect(html, contains('点在 <span'));
+      expect(html, contains('</span> 处'));
+      expect(converter.mathBlocks.first.display, isFalse);
+    });
+
+    test('tex 为空时不生成占位元素', () {
+      final converter = BBCode2Html();
+      converter.convert('[appdata]{"type":"math","tex":""}[/appdata]');
+      expect(converter.mathBlocks, isEmpty);
+    });
+  });
+
   group('BBCode2Html - 表格渲染', () {
     test('表格 td 内 align 被提取到 td 样式', () {
       const bbcode =
@@ -54,6 +84,33 @@ void main() {
       expect(html, contains('<a href="https://www.feejii.com/'));
       // 不应有 div align 包裹
       expect(html, isNot(contains('<div align=')));
+    });
+  });
+
+  group('BBCode2Html - 正文相对链接', () {
+    test('[url=forum.php?...] 按注入的所属站点补全', () {
+      final converter = BBCode2Html(baseUrl: 'https://b.example.com');
+      final html = converter.convert(
+        '[url=forum.php?mod=viewthread&tid=1]链接[/url]',
+      );
+      expect(
+        html,
+        contains(
+          'href="https://b.example.com/forum.php?mod=viewthread&amp;tid=1"',
+        ),
+      );
+    });
+
+    test('绝对地址与 App 内路径不补站点前缀', () {
+      final converter = BBCode2Html(baseUrl: 'https://b.example.com');
+      expect(
+        converter.convert('[url=https://a.example.com/x]绝对[/url]'),
+        contains('href="https://a.example.com/x"'),
+      );
+      expect(
+        converter.convert('[url=/thread/1]App[/url]'),
+        contains('href="/thread/1"'),
+      );
     });
   });
 

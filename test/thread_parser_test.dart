@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html_parser;
+import 'package:mtbbs/core/parser/post_parser.dart';
 import 'package:mtbbs/core/parser/thread_parser.dart';
 import 'package:mtbbs/core/app/site_store.dart';
 
@@ -640,6 +642,149 @@ void main() {
       expect(info.matched, false);
       expect(info.parser, 'NoParser');
       expect(info.items, isEmpty);
+    });
+  });
+
+  group('单帖解析 - 悬赏（bounty）', () {
+    test('52pojie div.rwd > div.rsld：cite 金额 + 后缀单位', () {
+      final doc = html_parser.parse(
+        '<table id="pid_54593821" class="plhin">'
+        '<tr>'
+        '<td class="pls"><p class="pi"><em><a>锋芒初露</a></em></p>'
+        '<div class="pi"><span class="authi">'
+        '<a href="home.php?mod=space&uid=524201">m99044032</a></span></div></td>'
+        '<td class="plc">'
+        '<div class="pcbs"><div class="rwd cl">'
+        '<div class="rsld z"><cite>25</cite>吾爱币</div>'
+        '<div class="rwdn"><table><tr>'
+        '<td class="t_f" id="postmessage_54593821">正文内容</td>'
+        '</tr></table></div>'
+        '</div></div>'
+        '</td>'
+        '</tr>'
+        '</table>',
+      );
+      final post = parsePostFromTable(
+        doc.querySelector('table.plhin')!,
+        isOp: true,
+        floor: 1,
+      );
+      final bbcode = post['bbcode'] as String;
+      expect(bbcode, startsWith('[appdata]{"type":"bounty"'));
+      expect(bbcode, contains('"amount":"25"'));
+      expect(bbcode, contains('"unit":"吾爱币"'));
+    });
+
+    test('MT div.rusld：原有选择器不受影响', () {
+      final doc = html_parser.parse(
+        '<table id="pid_1" class="plhin"><tr>'
+        '<td class="pls"></td>'
+        '<td class="plc">'
+        '<div class="pcbs"><div class="rwd">'
+        '<div class="rusld z"><cite>30</cite>金币</div>'
+        '<div class="rwdn"><table><tr>'
+        '<td class="t_f" id="postmessage_1">正文</td>'
+        '</tr></table></div>'
+        '</div></div>'
+        '</td></tr></table>',
+      );
+      final post = parsePostFromTable(doc.querySelector('table.plhin')!);
+      expect(post['bbcode'], contains('"type":"bounty"'));
+      expect(post['bbcode'], contains('"amount":"30"'));
+      expect(post['bbcode'], contains('"unit":"金币"'));
+    });
+  });
+
+  group('帖子点评（楼中楼）', () {
+    test('52pojie 点评：解析作者、内容、时间与点评 pid', () {
+      final doc = html_parser.parse(
+        '<table class="plhin"><tr>'
+        '<td class="pls"></td>'
+        '<td class="plc">'
+        '<div class="pcb">'
+        '<div class="t_fsz"><table><tr>'
+        '<td class="t_f" id="postmessage_44532971">正文</td>'
+        '</tr></table></div>'
+        '<div id="comment_44532971" class="cm">'
+        '<h3 class="psth xs1"><span class="icon_ring vm"></span>点评</h3>'
+        '<div class="pstl xs1 cl">'
+        '<div class="psta vm">'
+        '<a href="home.php?mod=space&amp;uid=1" c="1"><img src="avatar.jpg"></a>'
+        '<a href="home.php?mod=space&amp;uid=1" class="xi2 xw1">Hmily</a>'
+        '</div>'
+        '<div class="psti">'
+        '你踢垃圾桶的理由写的什么？那是理由吗？&nbsp;'
+        '<a href="forum.php?mod=redirect&amp;goto=findpost&amp;pid=44533018&amp;ptid=1702042" class="xi2">详情</a>'
+        '<a href="forum.php?mod=post&amp;action=reply&amp;fid=10&amp;tid=1702042">回复</a>'
+        '<span class="xg1">发表于 2022-11-1 17:17</span>'
+        '</div></div></div>'
+        '<div id="post_rate_div_44532971"></div>'
+        '</div></td></tr></table>',
+      );
+      final post = parsePostFromTable(doc.querySelector('table.plhin')!);
+      final comments = post['comments'] as List;
+      expect(comments, hasLength(1));
+      final comment = comments.first as Map;
+      expect(comment['username'], 'Hmily');
+      expect(comment['uid'], '1');
+      expect(comment['time'], '2022-11-1 17:17');
+      expect(comment['pid'], '44533018');
+      expect(comment['message'], contains('你踢垃圾桶的理由写的什么'));
+      expect(comment['message'], isNot(contains('详情')));
+      expect(comment['message'], isNot(contains('2022-11-1')));
+    });
+
+    test('MT 克米点评：无「详情」链接时 pid 为空，昵称冒号原样保留', () {
+      // 实测 bbs.binmt.cc tid=86543（克米 comiis_mi 模板，登录态）
+      final doc = html_parser.parse(
+        '<table class="plhin"><tr>'
+        '<td class="pls"></td>'
+        '<td class="plc">'
+        '<div class="pcb">'
+        '<div class="t_fsz"><table><tr>'
+        '<td class="t_f" id="postmessage_11147227">正文</td>'
+        '</tr></table></div>'
+        '<div id="comment_11147227" class="cm">'
+        '<h3 class="psth xs1"><span class="icon_ring vm"></span>点评</h3>'
+        '<div class="pstl xs1 cl">'
+        '<div class="psta vm">'
+        '<a href="https://bbs.binmt.cc/space-uid-2.html" c="1">'
+        '<img src="avatar.jpg"></a>'
+        '<a href="https://bbs.binmt.cc/space-uid-2.html" class="xi2 xw1">Bin：</a>'
+        '</div>'
+        '<div class="psti">'
+        '已加&nbsp;'
+        '<span class="xg1">\n发表于 2026-6-6 15:14</span>'
+        '</div></div></div>'
+        '</div></td></tr></table>',
+      );
+      final post = parsePostFromTable(doc.querySelector('table.plhin')!);
+      final comments = post['comments'] as List;
+      expect(comments, hasLength(1));
+      final comment = comments.first as Map;
+      expect(comment['uid'], '2');
+      // MT 模板把全角冒号写进锚文本，解析不改写（见 docs/07 #115）
+      expect(comment['username'], 'Bin：');
+      expect(comment['message'], '已加');
+      expect(comment['time'], '2026-6-6 15:14');
+      // MT 没有「详情」链接，取不到点评自身 pid
+      expect(comment['pid'], '');
+    });
+
+    test('无 pstl 的回帖奖励 .cm 不会被当成点评', () {
+      final doc = html_parser.parse(
+        '<table class="plhin"><tr>'
+        '<td class="pls"></td>'
+        '<td class="plc">'
+        '<div class="pcb">'
+        '<div class="t_fsz"><table><tr>'
+        '<td class="t_f" id="postmessage_1">正文</td>'
+        '</tr></table></div>'
+        '<div class="cm"><h3 class="psth">回帖奖励</h3></div>'
+        '</div></td></tr></table>',
+      );
+      final post = parsePostFromTable(doc.querySelector('table.plhin')!);
+      expect(post['comments'], isEmpty);
     });
   });
 }

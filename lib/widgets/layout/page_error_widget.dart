@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mtbbs/core/utils/error_message.dart';
 
 /// 统一页面错误组件
 ///
@@ -51,7 +52,7 @@ class PageErrorWidget extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              message,
+              friendlyErrorMessage(message),
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,

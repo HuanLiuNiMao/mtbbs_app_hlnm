@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:html/dom.dart' as dom;
 import 'package:mtbbs/core/parser/md2bbcode.dart';
 import 'package:mtbbs/core/utils/url_util.dart';
@@ -15,13 +17,84 @@ import 'package:mtbbs/models/md_convert_templates.dart';
 ///
 /// 只在 `div.parsedown-markdown` 容器内使用（由 [Html2BBCode] 判定），
 /// 其它站点的 HTML 不走这里，因此不会影响既有解析结果。
-String htmlToMarkdown(dom.Element root) => _Html2Markdown().convert(root);
+String htmlToMarkdown(dom.Element root) {
+  final math = _MathCollector();
+  final markdown = _Html2Markdown(math).convert(root);
+  return math.restoreMarkdown(markdown);
+}
 
 /// Parsedown 容器 → 展示用 BBCode（[Html2BBCode] 直接拼接）
 String parsedownHtmlToBbcode(dom.Element root) {
-  final markdown = htmlToMarkdown(root);
+  final math = _MathCollector();
+  final attachments = _AttachmentCollector();
+  final markdown = _Html2Markdown(math, attachments: attachments).convert(root);
   if (markdown.trim().isEmpty) return '';
-  return markdownToBbcode(markdown, templates: _displayTemplates);
+  final bbcode = markdownToBbcode(markdown, templates: _displayTemplates);
+  return attachments.restore(math.restoreBbcode(bbcode));
+}
+
+/// 普通附件（`<ignore_js_op>` 内 `a[href*=mod=attachment]`）收集器
+///
+/// 与数学公式同理，JSON 不能直接写进 Markdown：文件名里的 `_`、`*`、`[]`
+/// 会被 Markdown 转义/解释，往返后 JSON 就坏了。解析期间先用控制字符占位，
+/// 转成 BBCode 后再替换为 `[appdata]`。
+class _AttachmentCollector {
+  final List<String> items = [];
+
+  String add(Map<String, dynamic> data) {
+    items.add(jsonEncode(data));
+    return '\x00ATTACH${items.length - 1}\x00';
+  }
+
+  String restore(String text) => text.replaceAllMapped(
+    RegExp(r'\x00ATTACH(\d+)\x00'),
+    (m) => '[appdata]${items[int.parse(m.group(1)!)]}[/appdata]',
+  );
+}
+
+/// 数学公式（`.math-render`）收集器
+///
+/// 解析期间先用占用符（`\x00MATH0\x00`）代替公式，转换结束后再还原。
+/// **不能**在还原出的 Markdown 文本里直接写 `[appdata]{…}`：JSON 中的 LaTeX
+/// 反斜杠（`\\frac`）会在 Markdown 的反斜杠转义阶段被吃掉，JSON 随之损坏。
+class _MathCollector {
+  final List<_MathItem> items = [];
+
+  String add(String tex, {required bool display}) {
+    items.add(_MathItem(tex, display));
+    return '\x00MATH${items.length - 1}\x00';
+  }
+
+  /// Markdown 场景：还原成 `$…$` / `$$…$$`
+  String restoreMarkdown(String text) => text.replaceAllMapped(
+    RegExp(r'\x00MATH(\d+)\x00'),
+    (m) {
+      final item = items[int.parse(m.group(1)!)];
+      final fence = item.display ? r'$$' : r'$';
+      return '$fence${item.tex}$fence';
+    },
+  );
+
+  /// BBCode 场景：还原成 App 私有展示载荷 `[appdata]`
+  String restoreBbcode(String text) => text.replaceAllMapped(
+    RegExp(r'\x00MATH(\d+)\x00'),
+    (m) {
+      final item = items[int.parse(m.group(1)!)];
+      final json = jsonEncode({
+        'type': 'math',
+        'tex': item.tex,
+        'display': item.display,
+      });
+      return '[appdata]$json[/appdata]';
+    },
+  );
+}
+
+class _MathItem {
+  final String tex;
+  final bool display;
+
+  const _MathItem(this.tex, this.display);
 }
 
 /// 展示用模板：只在「帖子阅读」场景使用。
@@ -55,7 +128,30 @@ const _displayTemplates = MdConvertTemplates(
 ///
 /// 只覆盖 Parsedown 会产出的标签；未知标签保留其文本内容。
 class _Html2Markdown {
+  _Html2Markdown(this._math, {_AttachmentCollector? attachments})
+    : _attachments = attachments;
+
+  final _MathCollector _math;
+
+  /// 非空时把普通附件转成 `[appdata]` 占位符（BBCode 阅读场景）；
+  /// 为空时（纯 Markdown 输出）转成普通链接。
+  final _AttachmentCollector? _attachments;
+
   String convert(dom.Element root) => _blocksOf(root).trim();
+
+  /// `.math-render`：52pojie Markdown 插件的公式容器。
+  /// 内容是 `$$…$$`（块级）或 `$…$`（行内）包裹的原始 LaTeX。
+  static ({String tex, bool display})? _parseMath(dom.Element el) {
+    final raw = el.text.replaceAll('\u00a0', ' ').trim();
+    if (raw.length >= 4 && raw.startsWith(r'$$') && raw.endsWith(r'$$')) {
+      return (tex: raw.substring(2, raw.length - 2).trim(), display: true);
+    }
+    if (raw.length >= 2 && raw.startsWith(r'$') && raw.endsWith(r'$')) {
+      return (tex: raw.substring(1, raw.length - 1).trim(), display: false);
+    }
+    // 没有 `$` 分隔符（如 `\(…\)`）时按普通文本处理，交由既有逻辑转义
+    return null;
+  }
 
   // ==================== 块级 ====================
 
@@ -110,6 +206,12 @@ class _Html2Markdown {
 
   String _block(dom.Node node) {
     if (node is! dom.Element) return '';
+    // 块级公式：<div class="math-render">$$…$$</div>
+    if (node.classes.contains('math-render')) {
+      final math = _parseMath(node);
+      if (math == null) return '';
+      return '${_math.add(math.tex, display: math.display)}\n\n';
+    }
     final tag = node.localName ?? '';
     switch (tag) {
       case 'h1':
@@ -139,6 +241,8 @@ class _Html2Markdown {
         // 识别成 Front Matter 并转成 [free]
         return '***\n\n';
       case 'ignore_js_op':
+        final attach = _attachment(node);
+        if (attach != null) return '$attach\n\n';
         final img = node.querySelector('img');
         return img == null ? '' : '${_image(img)}\n\n';
       case 'div':
@@ -211,9 +315,14 @@ class _Html2Markdown {
     List<dom.Element> cellsOf(dom.Element row) => row.children
         .where((c) => c.localName == 'th' || c.localName == 'td')
         .toList();
-    String cellText(dom.Element cell) => _escapeText(
-      _inlinesOf(cell).replaceAll(RegExp(r'\s*\n\s*'), ' ').trim(),
-    ).replaceAll('|', r'\|');
+    // 单元格内容已经是 Markdown 片段（`**粗体**`、`[文本](链接)` 等），
+    // 不能再整体 _escapeText——那会把生成的语法转义成字面量（曾导致单元格里的
+    // 加粗显示成 `**xxx**`、链接变成 `[url]([url=…]…[/url])`）。
+    // 文本节点的转义已由 _inline 内部完成，这里只需处理 GFM 的列分隔符。
+    String cellText(dom.Element cell) => _inlinesOf(cell)
+        .replaceAll(RegExp(r'\s*\n\s*'), ' ')
+        .trim()
+        .replaceAll('|', r'\|');
 
     final header = cellsOf(rows.first);
     final buf = StringBuffer();
@@ -234,6 +343,12 @@ class _Html2Markdown {
       return _escapeText(node.text ?? '');
     }
     if (node is! dom.Element) return '';
+    // 行内公式：<span class="math-render">$…$</span>
+    if (node.classes.contains('math-render')) {
+      final math = _parseMath(node);
+      if (math == null) return _inlinesOf(node);
+      return _math.add(math.tex, display: math.display);
+    }
     final tag = node.localName ?? '';
     switch (tag) {
       case 'br':
@@ -262,6 +377,8 @@ class _Html2Markdown {
       case 'img':
         return _image(node);
       case 'ignore_js_op':
+        final attach = _attachment(node);
+        if (attach != null) return attach;
         final img = node.querySelector('img');
         return img == null ? '' : _image(img);
       case 'div':
@@ -278,6 +395,53 @@ class _Html2Markdown {
     // 内容含反引号时用双反引号包裹
     final fence = text.contains('`') ? '``' : '`';
     return '$fence$text$fence';
+  }
+
+  /// `<ignore_js_op>` 内的普通附件（图片附件之外的 zip/rar 等）
+  ///
+  /// 结构：
+  /// ```html
+  /// <ignore_js_op>
+  ///   <img src=".../filetype/zip.gif">
+  ///   <span id="attach_N">
+  ///     <a href="forum.php?mod=attachment&aid=...">name.zip</a>
+  ///     <em class="xg1">(1.67 MB, 下载次数: 4329)</em>
+  ///   </span>
+  /// </ignore_js_op>
+  /// ```
+  /// 文件类型图标（zip.gif）没有展示价值，绝不能当普通图片输出——否则文件名、
+  /// 大小、下载入口全部丢失，正文只剩一张图标（52pojie Markdown 帖 2117334）。
+  ///
+  /// BBCode 阅读场景转成 [appdata] 占位符（由 [_AttachmentCollector] 还原），
+  /// 纯 Markdown 输出则转成普通链接。
+  String? _attachment(dom.Element op) {
+    final link = op.querySelector('a[href*="mod=attachment"]');
+    if (link == null) return null;
+    final href = (link.attributes['href'] ?? '').trim();
+    if (href.isEmpty) return null;
+
+    final name = link.text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final emText = op.querySelector('em.xg1')?.text ?? '';
+    final size =
+        RegExp(r'\(([^,]+)').firstMatch(emText)?.group(1)?.trim() ?? '';
+    final downloads =
+        RegExp(r'下载次数[：:]\s*(\d+)').firstMatch(emText)?.group(1) ?? '';
+    final aid = RegExp(r'aid=([^&]+)').firstMatch(href)?.group(1) ?? '';
+    final url = normalizeUrl(href);
+
+    final collector = _attachments;
+    if (collector != null) {
+      return collector.add({
+        'type': 'attach',
+        if (aid.isNotEmpty) 'aid': aid,
+        'name': name.isEmpty ? '附件' : name,
+        if (size.isNotEmpty) 'size': size,
+        if (url.isNotEmpty) 'url': url,
+        if (downloads.isNotEmpty) 'downloads': downloads,
+      });
+    }
+    final text = name.isEmpty ? url : name;
+    return '[$text](${_destination(url)})';
   }
 
   String _image(dom.Element img) {

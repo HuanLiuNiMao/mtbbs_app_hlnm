@@ -3,14 +3,17 @@ part of 'editor_page.dart';
 /// 页面/引用数据抓取 — 从绑定的 Discuz 页面提取会话数据，以及引用帖加载。
 extension on _EditorPageState {
   Future<void> _doFetchPage({bool preserveContent = false}) async {
+    // 代次：身份重建 / 再次刷新时，让旧身份的在途请求作废
+    final epoch = ++_pageFetchEpoch;
     _setState(() {
       _loadingPage = true;
       _pageError = null;
+      _session.clearCaptcha();
     });
     final result = await _session.submitHelper.fetchPage(
       preserveContent: preserveContent,
     );
-    if (!mounted) return;
+    if (!mounted || epoch != _pageFetchEpoch) return;
 
     AppLogger.i(
       'EDITOR',
@@ -22,6 +25,8 @@ extension on _EditorPageState {
         'contentLen': result.content.length,
         'images': result.images.length,
         'boundAttachments': result.boundAttachments.length,
+        'seccodeRequired': result.seccodeRequired,
+        'secqaaRequired': result.secqaaRequired,
         'uploadHash': result.uploadHash.isNotEmpty,
         'fid': result.fid,
         'tid': result.tid,
@@ -91,15 +96,21 @@ extension on _EditorPageState {
     // 异步加载已上传但未绑定的图片和附件
     _images.refresh();
     _refreshAttachmentList();
+
+    // 页面要求人机验证时才拉取，避免给未启用的站点发多余请求
+    if (result.captchaRequired) {
+      _session.loadCaptcha();
+    }
   }
 
   Future<void> _doFetchQuotedPost() async {
+    final epoch = _pageFetchEpoch;
     _setState(() {
       _loadingQuoted = true;
       _quotedError = null;
     });
     final post = await _session.submitHelper.fetchQuotedPost();
-    if (!mounted) return;
+    if (!mounted || epoch != _pageFetchEpoch) return;
     if (post != null) {
       _setState(() {
         _session.quotedPost = post;

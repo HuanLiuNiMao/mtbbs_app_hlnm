@@ -5,10 +5,10 @@ import 'package:mtbbs/api/home/mypost/export.dart' as mypost;
 import 'package:mtbbs/api/home/notice/export.dart' as notice;
 import 'package:mtbbs/core/utils/database_helper.dart';
 import 'package:mtbbs/core/utils/history_filter.dart';
+import 'package:mtbbs/mcp/mcp_scope.dart';
 import 'package:mtbbs/mcp/mcp_types.dart';
 import 'package:mtbbs/mcp/tools/mcp_payloads.dart';
 import 'package:mtbbs/mcp/tools/mcp_tool_definition.dart';
-import 'package:mtbbs/services/api_service.dart';
 
 /// 与"个人数据"相关的工具，两组都**默认关闭**：
 /// - `McpToolGroup.accountData`：需要登录的账号**私有**数据（收藏 / 积分记录 / 提醒）
@@ -30,7 +30,7 @@ List<McpToolDefinition> savedTools() => [
     },
     run: (args) async {
       final page = McpArgs.integer(args, 'page', fallback: 1, min: 1, max: 200);
-      return favorite.fetchFavorites(ApiService().dio, page: page);
+      return favorite.fetchFavorites(McpScope.effectiveDio, page: page);
     },
   ),
   McpToolDefinition(
@@ -53,7 +53,7 @@ List<McpToolDefinition> savedTools() => [
       final exttype = McpArgs.str(args, 'exttype');
       final optype = McpArgs.str(args, 'optype');
       final result = await credit.fetchCreditLog(
-        ApiService().dio,
+        McpScope.effectiveDio,
         page: page,
         exttype: exttype.isEmpty ? '0' : exttype,
         optype: optype,
@@ -83,12 +83,12 @@ List<McpToolDefinition> savedTools() => [
       final page = McpArgs.integer(args, 'page', fallback: 1, min: 1, max: 200);
       final result = view == 'mypost'
           ? await mypost.getMypostList(
-              ApiService().dio,
+              McpScope.effectiveDio,
               page: page,
               type: 'post',
             )
           : await notice.getNoticeList(
-              ApiService().dio,
+              McpScope.effectiveDio,
               page: page,
               view: view,
             );

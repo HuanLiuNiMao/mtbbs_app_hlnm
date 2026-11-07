@@ -5,6 +5,7 @@ import 'package:mtbbs/core/app/app_capabilities.dart';
 import 'package:provider/provider.dart';
 import 'package:mtbbs/models/thread_detail.dart';
 import 'package:mtbbs/core/app/site_store.dart';
+import 'package:mtbbs/core/utils/clipboard_helper.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/widgets/bbcode/post_html_widget.dart';
 import 'package:mtbbs/widgets/common/app_sheet.dart';
@@ -156,6 +157,110 @@ class _ThreadPostCardState extends State<ThreadPostCard> {
     );
   }
 
+  /// 本楼「点评」（楼中楼）：作者 + 内容 + 时间
+  Widget _buildComments(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final comments = widget.post.comments;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: cs.outlineVariant, width: 0.5),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            child: Row(
+              children: [
+                Icon(Icons.chat_bubble_outline, size: 14, color: cs.primary),
+                const SizedBox(width: 4),
+                const Text(
+                  '点评',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${comments.length}',
+                  style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ),
+          for (final c in comments)
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: cs.outlineVariant, width: 0.5),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  UserAvatar(
+                    uid: c.uid,
+                    nickname: c.username,
+                    radius: 12,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                c.username,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (c.time.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                c.time,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (c.message.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              c.message,
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.4,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// 「查看全部 N 条评分」入口
   Widget _ratingViewAllButton(BuildContext context, int total) {
     final cs = Theme.of(context).colorScheme;
@@ -233,7 +338,6 @@ class _ThreadPostCardState extends State<ThreadPostCard> {
                     columns: columns,
                     entries: entries,
                     hasReason: hasReason,
-                    wrapReason: true,
                   ),
                 ),
               ],
@@ -291,6 +395,7 @@ class _ThreadPostCardState extends State<ThreadPostCard> {
               widget.post.bbcode,
               style: TextStyle(color: cs.onSurfaceVariant),
             ),
+          if (widget.post.comments.isNotEmpty) _buildComments(context),
           if (widget.post.rating != null) _buildRating(context),
           if (!widget.readOnly && !widget.post.isOp)
             Padding(
@@ -391,11 +496,15 @@ class _ThreadPostCardState extends State<ThreadPostCard> {
         ),
         if (!widget.post.isOp && widget.post.floor > 0)
           GestureDetector(
-            onTap: () {
+            onTap: () async {
               final url =
                   '${SiteStore.instance.baseUrl}/forum.php?mod=redirect&goto=findpost&ptid=${widget.tid}&pid=${widget.post.pid}';
-              Clipboard.setData(ClipboardData(text: url));
-              showToast('复制楼层成功：tid：${widget.tid}，pid：${widget.post.pid}');
+              final ok = await ClipboardHelper.write(url);
+              showToast(
+                ok
+                    ? '复制楼层成功：tid：${widget.tid}，pid：${widget.post.pid}'
+                    : '复制到剪切板失败',
+              );
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
@@ -464,7 +573,7 @@ class _ThreadPostCardState extends State<ThreadPostCard> {
                 ),
               const PopupMenuItem(
                 value: PostCardAction.showBbcode,
-                child: Text('查看 BBCode', style: TextStyle(fontSize: 13)),
+                child: Text('查看', style: TextStyle(fontSize: 13)),
               ),
               if (widget.post.postTime.length < 15)
                 PopupMenuItem(
@@ -516,19 +625,17 @@ class _ThreadPostCardState extends State<ThreadPostCard> {
   }
 }
 
-/// 评分表格：帖内传截断后的 [entries]，弹层传全量并允许理由换行。
+/// 评分表格：帖内传截断后的 [entries]，弹层传全量。
 class _RatingTable extends StatelessWidget {
   const _RatingTable({
     required this.columns,
     required this.entries,
     required this.hasReason,
-    this.wrapReason = false,
   });
 
   final List<dynamic> columns;
   final List<dynamic> entries;
   final bool hasReason;
-  final bool wrapReason;
 
   @override
   Widget build(BuildContext context) {
@@ -599,7 +706,8 @@ class _RatingTable extends StatelessWidget {
                 if (hasReason)
                   _cell(
                     ConstrainedBox(
-                      // 弹层里给理由列一个上限宽度，长理由才会换行
+                      // 理由列限宽后自动换行：不截断、不加省略号
+                      // （默认只展示前 10 行，行高增长可接受）
                       constraints: const BoxConstraints(maxWidth: 200),
                       child: Text(
                         reason,
@@ -607,8 +715,6 @@ class _RatingTable extends StatelessWidget {
                           fontSize: 11,
                           color: cs.onSurfaceVariant,
                         ),
-                        maxLines: wrapReason ? 3 : 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),

@@ -69,6 +69,7 @@ extension on _ThreadViewPageState {
                 onPageTap: _showPagePicker,
                 onRefresh: _isCacheMode ? null : _refreshCurrentPage,
                 windowEnd: _windowEnd,
+                onTitleTap: _isCacheMode ? null : _showFloorJumpDialog,
               ),
             ),
           ),
@@ -104,9 +105,38 @@ extension on _ThreadViewPageState {
               style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
             ),
           ),
+          const SizedBox(width: 4),
+          TextButton(
+            onPressed: _switchToSessionSite,
+            style: TextButton.styleFrom(
+              minimumSize: Size.zero,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+            child: const Text('立即切换站点', style: TextStyle(fontSize: 12)),
+          ),
         ],
       ),
     );
+  }
+
+  /// 把全局当前站点切换成这条跨站记录的来源站点，并在全局身份下重开本页
+  Future<void> _switchToSessionSite() async {
+    final index = SiteStore.instance.sites.indexWhere(
+      (s) => s.host == _session.host,
+    );
+    if (index < 0) return;
+    final orchestrator = AppOrchestrator(
+      settings: context.read<SettingsProvider>(),
+      auth: context.read<AuthProvider>(),
+    );
+    await orchestrator.switchSite(index);
+    if (!mounted) return;
+    // 当前 location 仍带旧的 site= 参数（指向刚变成作用域会话的站点），
+    // 换成不带 site= 的同一帖子，即用新当前站点 + 全局账号打开
+    final page = _currentPage > 1 ? '?page=$_currentPage' : '';
+    context.pushReplacement('/thread/${widget.tid}$page');
   }
 
   // ==================== 评论区 ====================
@@ -169,7 +199,7 @@ extension on _ThreadViewPageState {
           case PostCardAction.openInBrowser:
             _openPostInBrowser(post);
           case PostCardAction.showBbcode:
-            _showBbcodeDialog(post);
+            _showPostSource(post);
           case PostCardAction.editPost:
             _editPost(post);
           case PostCardAction.viewTime:
@@ -199,6 +229,7 @@ extension on _ThreadViewPageState {
           onPageTap: _showPagePicker,
           onRefresh: _isCacheMode ? null : _refreshCurrentPage,
           windowEnd: _windowEnd,
+          onTitleTap: _isCacheMode ? null : _showFloorJumpDialog,
         ),
         const Divider(height: 1),
         Expanded(child: SingleChildScrollView(child: _buildCommentContent())),
@@ -224,7 +255,7 @@ extension on _ThreadViewPageState {
           case PostCardAction.openInBrowser:
             _openPostInBrowser(post);
           case PostCardAction.showBbcode:
-            _showBbcodeDialog(post);
+            _showPostSource(post);
           case PostCardAction.editPost:
             _editPost(post);
           case PostCardAction.viewTime:
@@ -259,6 +290,9 @@ extension on _ThreadViewPageState {
       onTapTarget: _replyTargetPid != null ? _showReplyTargetPreview : null,
       // 图片角标：已上传的图片数（有角标时该项强制显示，与完整编辑器一致）
       badges: {if (_images.list.isNotEmpty) 'image': _images.list.length},
+      captchaField: _editorSession.captchaRequired
+          ? CaptchaFields(session: _editorSession)
+          : null,
     );
   }
 

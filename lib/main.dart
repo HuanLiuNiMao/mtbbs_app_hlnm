@@ -15,6 +15,7 @@ import 'package:mtbbs/providers/search_history_provider.dart';
 import 'package:mtbbs/providers/editor_history_provider.dart';
 import 'package:mtbbs/config/nav_config.dart';
 import 'package:mtbbs/config/router.dart';
+import 'package:mtbbs/mcp/mcp_server_controller.dart';
 import 'package:mtbbs/core/app/app_link.dart';
 import 'package:mtbbs/core/app/app_capabilities.dart';
 import 'package:mtbbs/core/app/app_shortcuts.dart';
@@ -34,6 +35,7 @@ import 'package:mtbbs/api/home/credit/export.dart' as credit_api;
 import 'package:mtbbs/models/post_preview.dart';
 import 'package:mtbbs/core/app/desktop_window.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
+import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/core/utils/max_screen_size.dart';
 import 'package:mtbbs/mcp/mcp.dart';
 import 'package:mtbbs/services/backup/backup_scheduler.dart';
@@ -222,6 +224,15 @@ void main() async {
         navItems[settings.defaultTabIndex.clamp(0, navItems.length - 1)].path,
   );
 
+  // MCP 页面导航：仅在路由创建后注入；未就绪时返回给 AI 可读原因
+  McpServerController.instance.bindNavigator((path) {
+    if (rootNavigatorKey.currentContext == null) {
+      return 'App 页面尚未就绪（可能仍在前台首帧渲染中），请稍后重试';
+    }
+    unawaited(router.push(path));
+    return null;
+  });
+
   // Windows 下监听窗口 resize/移动/最大化并记忆状态
   final app = _buildApp(
     auth,
@@ -276,16 +287,7 @@ Future<void> _runSettingsGuard(SettingsProvider settings) async {
 
   final guards =
       <({bool Function() needsRefresh, Future<void> Function() refresh})>[
-        // 站点 CDN 排在表情之前：表情图片 URL 依赖识别结果
-        (
-          needsRefresh: () =>
-              SiteCdnStore.instance.needsDetect(SiteStore.instance.host),
-          refresh: () => detectSiteCdn(host: SiteStore.instance.host),
-        ),
-        (
-          needsRefresh: () => !EmojiService().isLoaded,
-          refresh: () => EmojiService().load(),
-        ),
+        // 版块排最前：首页首屏直接可见，且不依赖 CDN / 表情
         (
           needsRefresh: () => SiteStore.instance.forums.isEmpty,
           refresh: () async {
@@ -302,6 +304,16 @@ Future<void> _runSettingsGuard(SettingsProvider settings) async {
             }
           },
         ),
+        // 站点 CDN 排在表情之前：表情图片 URL 依赖识别结果
+        (
+          needsRefresh: () =>
+              SiteCdnStore.instance.needsDetect(SiteStore.instance.host),
+          refresh: () => detectSiteCdn(host: SiteStore.instance.host),
+        ),
+        (
+          needsRefresh: () => !EmojiService().isLoaded,
+          refresh: () => EmojiService().load(),
+        ),
         (
           needsRefresh: () =>
               settings.creditFormula == SettingsProvider.defaultFormula,
@@ -314,9 +326,14 @@ Future<void> _runSettingsGuard(SettingsProvider settings) async {
         ),
       ];
 
+  // 各守卫互相独立：任一失败只记录，不阻断后续（例如 CDN 探测失败不应
+  // 连带跳过版块初始化）。
   for (final guard in guards) {
-    if (guard.needsRefresh()) {
+    if (!guard.needsRefresh()) continue;
+    try {
       await guard.refresh();
+    } catch (e) {
+      AppLogger.w('GUARD', '启动守卫失败: $e');
     }
   }
 }

@@ -17,6 +17,8 @@ void main() {
       htmlToMarkdown(htmlParser.parse(html).body!.querySelector('div')!);
 
   group('Html2Markdown - 结构还原', () {
+    setUpAll(() => SiteStore.instance.init());
+
     test('标题 / 段落 / 行内样式', () {
       final out = md(
         '<div class="parsedown-markdown">'
@@ -98,6 +100,23 @@ void main() {
       expect(out, isNot(contains('1.png')));
     });
 
+    test('普通附件（zip 等）转 Markdown 链接，不输出文件类型图标', () {
+      // 52pojie thread-2117334：Markdown 帖的附件是
+      // <ignore_js_op><img src="filetype/zip.gif"> + <a mod=attachment> + <em>
+      // 原实现只取首个 <img>，正文只剩一张 zip.gif 图标。
+      final out = md(
+        '<div class="parsedown-markdown"><p><ignore_js_op>'
+        '<img src="https://static.example.com/static/image/filetype/zip.gif" class="vm">'
+        '<span id="attach_2863935">'
+        '<a href="forum.php?mod=attachment&amp;aid=Mjg2MzkzNXw%3D%3D">工具_v3.4.zip</a>'
+        '<em class="xg1">(1.67 MB, 下载次数: 4329)</em>'
+        '</span></ignore_js_op></p></div>',
+      );
+      expect(out, contains('工具_v3.4.zip'));
+      expect(out, contains('mod=attachment'));
+      expect(out, isNot(contains('zip.gif')));
+    });
+
     test('正文里的 Markdown 特殊字符被转义，不会被二次解析', () {
       final out = md(
         '<div class="parsedown-markdown"><p>a *b* [c] _d_ &lt;e&gt;</p></div>',
@@ -127,8 +146,53 @@ void main() {
     });
   });
 
+  group('Html2Markdown - 数学公式', () {
+    test(r'块级 / 行内公式还原为 $ 分隔的 TeX', () {
+      final out = md(
+        r'<div class="parsedown-markdown">'
+        r'<div class="math-render">$$\frac{a}{b}$$</div>'
+        r'<p>点 <span class="math-render">$x_{0}$</span></p>'
+        r'</div>',
+      );
+      expect(out, contains(r'$$\frac{a}{b}$$'));
+      expect(out, contains(r'$x_{0}$'));
+    });
+
+    test(r'无 $ 分隔符时按普通文本处理', () {
+      final out = md(
+        '<div class="parsedown-markdown">'
+        '<span class="math-render">plain</span>'
+        '</div>',
+      );
+      expect(out, contains('plain'));
+      expect(out, isNot(contains(r'$plain$')));
+    });
+  });
+
   group('Html2BBCode - 52pojie Markdown 插件端到端', () {
     String conv(String html) => Html2BBCode().convert(html);
+
+    setUpAll(() => SiteStore.instance.init());
+
+    test('普通附件转 [appdata] 附件卡片，不输出文件类型图标', () {
+      // 52pojie thread-2117334 主楼真实结构
+      final out = conv(
+        '<div class="parsedown-markdown"><h3>下载地址</h3><p><ignore_js_op>'
+        '<img src="https://static.example.com/static/image/filetype/zip.gif" class="vm">'
+        '<span id="attach_2863935">'
+        '<a href="forum.php?mod=attachment&amp;aid=Mjg2MzkzNXw%3D%3D">工具_v3.4.zip</a>'
+        '<em class="xg1">(1.67 MB, 下载次数: 4329)</em>'
+        '</span></ignore_js_op></p></div>',
+      );
+      expect(out, contains('"type":"attach"'));
+      expect(out, contains('"name":"工具_v3.4.zip"'));
+      expect(out, contains('"size":"1.67 MB"'));
+      expect(out, contains('"downloads":"4329"'));
+      expect(out, contains('mod=attachment'));
+      expect(out, isNot(contains('zip.gif')));
+      // 元数据已进入 appdata，不应以正文形式重复出现
+      expect(out, isNot(contains('下载次数')));
+    });
 
     test('标题按阅读层级放大', () {
       final out = conv(
@@ -166,6 +230,37 @@ void main() {
       expect(out, isNot(contains('[th]')));
     });
 
+    test('表格单元格内的加粗 / 链接转成 BBCode，不残留 Markdown 语法', () {
+      // 52pojie thread-2091509 / 2088125 的真实结构
+      final out = conv(
+        '<div class="parsedown-markdown"><table><thead>'
+        '<tr><th>账号</th><th>地址</th></tr></thead><tbody><tr>'
+        '<td><strong>buluo533</strong></td>'
+        '<td><a href="https://www.52pojie.cn/thread-1996104-1-1.html">'
+        'https://www.52pojie.cn/thread-1996104-1-1.html</a></td>'
+        '</tr></tbody></table></div>',
+      );
+      expect(out, contains('[td][b]buluo533[/b][/td]'));
+      expect(
+        out,
+        contains(
+          '[td][url=https://www.52pojie.cn/thread-1996104-1-1.html]'
+          'https://www.52pojie.cn/thread-1996104-1-1.html[/url][/td]',
+        ),
+      );
+      expect(out, isNot(contains('**')));
+      expect(out, isNot(contains('](')));
+    });
+
+    test('表格单元格里的字面星号保持原样（不被当成 Markdown 语法）', () {
+      final out = conv(
+        '<div class="parsedown-markdown"><table><tbody><tr>'
+        '<td>MIFA**系列NFC</td>'
+        '</tr></tbody></table></div>',
+      );
+      expect(out, contains('MIFA**系列NFC'));
+    });
+
     test('分割线不会触发 Front Matter（不产生 [free]）', () {
       final out = conv(
         '<div class="parsedown-markdown">'
@@ -188,6 +283,26 @@ void main() {
       expect(out, contains('[code]line1\n\nline2[/code]'));
       expect(out, isNot(contains('复制代码')));
     });
+
+    test('数学公式转 appdata，LaTeX 反斜杠不被 Markdown 往返破坏', () {
+      final out = conv(
+        r'<div class="parsedown-markdown">'
+        r'<div class="math-render">'
+        r'$$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$'
+        r'</div>'
+        r'<p>点 <span class="math-render">$x_{0}$</span></p>'
+        r'</div>',
+      );
+      expect(out, contains('"type":"math"'));
+      // jsonEncode 会把 LaTeX 反斜杠再转义一层，BBCode 里是 `\\frac`
+      expect(out, contains(r'\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}'));
+      expect(out, contains('"display":true'));
+      expect(out, contains('"display":false'));
+      // 分隔符已剥掉，不会以 `$$` / `\$` 形式残留
+      expect(out, isNot(contains(r'$$')));
+      expect(out, isNot(contains(r'\$')));
+    });
+
 
     test('容器级行内 code 渲染后不换行（端到端）', () {
       final out = conv(

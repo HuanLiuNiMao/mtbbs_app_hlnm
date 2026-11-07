@@ -141,6 +141,7 @@ class CommentSection extends StatelessWidget {
     required VoidCallback? onPageTap,
     required VoidCallback? onRefresh,
     int? windowEnd,
+    VoidCallback? onTitleTap,
   }) {
     final cs = Theme.of(context).colorScheme;
     // 扩窗模式：页码显示区间（如 1-3 / 20），未扩窗时 windowEnd == currentPage 退化单页
@@ -154,12 +155,20 @@ class CommentSection extends StatelessWidget {
         children: [
           Icon(Icons.forum_outlined, size: 18, color: cs.onSurfaceVariant),
           const SizedBox(width: 6),
-          Text(
-            '评论区',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface,
+          GestureDetector(
+            onTap: onTitleTap,
+            behavior: HitTestBehavior.opaque,
+            child: Text(
+              '评论区',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface,
+                // 下划线表示可点击（点击后输入楼层并跳转）
+                decoration: onTitleTap == null
+                    ? null
+                    : TextDecoration.underline,
+              ),
             ),
           ),
           const Spacer(),

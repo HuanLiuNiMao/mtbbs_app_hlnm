@@ -130,6 +130,7 @@ class SessionRegistry {
     final session = FixedSiteSession(
       host: host,
       baseUrl: baseUrl,
+      charset: siteForHost(host)?.effectiveCharset ?? 'utf-8',
       accountName: account,
       uid: uid,
       username: username,

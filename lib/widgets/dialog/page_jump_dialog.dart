@@ -11,6 +11,7 @@ Future<void> showPageJumpDialog(
   required void Function(int page) onGoToPage,
   String title = '跳转页',
   String? initialText,
+  String? hintText,
   bool autofocus = false,
   bool showSummary = true,
 }) {
@@ -22,6 +23,7 @@ Future<void> showPageJumpDialog(
       onGoToPage: onGoToPage,
       title: title,
       initialText: initialText,
+      hintText: hintText,
       autofocus: autofocus,
       showSummary: showSummary,
     ),
@@ -40,6 +42,7 @@ class _PageJumpDialog extends StatefulWidget {
     required this.onGoToPage,
     required this.title,
     required this.initialText,
+    required this.hintText,
     required this.autofocus,
     required this.showSummary,
   });
@@ -49,6 +52,7 @@ class _PageJumpDialog extends StatefulWidget {
   final void Function(int page) onGoToPage;
   final String title;
   final String? initialText;
+  final String? hintText;
   final bool autofocus;
   final bool showSummary;
 
@@ -100,9 +104,11 @@ class _PageJumpDialogState extends State<_PageJumpDialog> {
             autofocus: widget.autofocus,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              hintText: widget.totalPages > 0
-                  ? '输入页码 (1-${widget.totalPages})'
-                  : '输入页码',
+              hintText:
+                  widget.hintText ??
+                  (widget.totalPages > 0
+                      ? '输入页码 (1-${widget.totalPages})'
+                      : '输入页码'),
               border: const OutlineInputBorder(),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
@@ -114,11 +120,34 @@ class _PageJumpDialogState extends State<_PageJumpDialog> {
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
+        // Android 对话框惯例：中立按钮居左，取消 / 确定居右
+        SizedBox(
+          width: double.infinity,
+          child: Row(
+            children: [
+              // 中立按钮：只显示末页页码，点击后填进输入框（不关闭、不直接跳转）
+              if (widget.totalPages > 0 &&
+                  widget.currentPage != widget.totalPages)
+                TextButton(
+                  onPressed: () {
+                    final text = widget.totalPages.toString();
+                    _tc.value = TextEditingValue(
+                      text: text,
+                      selection: TextSelection.collapsed(offset: text.length),
+                    );
+                  },
+                  child: Text('${widget.totalPages}'),
+                ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('取消'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton(onPressed: _submit, child: const Text('跳转')),
+            ],
+          ),
         ),
-        FilledButton(onPressed: _submit, child: const Text('跳转')),
       ],
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:go_router/go_router.dart';
 import 'package:html/dom.dart' as dom;
@@ -8,10 +9,12 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:mtbbs/config/brand_colors.dart';
 import 'package:mtbbs/core/app/emoji_loader.dart';
-import 'package:mtbbs/core/app/site_store.dart';
+import 'package:mtbbs/core/app/site_scope.dart';
 import 'package:mtbbs/core/parser/bbcode2html.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
+import 'package:mtbbs/core/utils/clipboard_helper.dart';
 import 'package:mtbbs/core/utils/url_router.dart';
+import 'package:mtbbs/core/utils/url_util.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/widgets/bbcode/bbcode_code_block.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
@@ -126,13 +129,15 @@ class PostHtmlWidget extends StatelessWidget {
       emojiMap: EmojiService().map,
       smilieIdMap: EmojiService().smilieIdMap,
       disabledTags: effectiveDisabled,
-      baseUrl: SiteStore.instance.baseUrl,
+      // 必须用页面所属会话，而非全局当前站点：同页可能以临时身份访问他站
+      baseUrl: SiteScope.of(context).baseUrl,
       autoDetectUrls: autoDetectUrls,
       // [code] 还原为占位元素，由 customWidgetBuilder 原地替换为高亮组件
       emitCodePlaceholder: true,
     );
     final html = converter.convert(bbcode);
     final codeBlocks = converter.codeBlocks;
+    final mathBlocks = converter.mathBlocks;
     // 本段 BBCode（= 一帖/一楼）的全部正文图片，供画廊左右滑动
     final imageUrls = converter.imageUrls;
 
@@ -151,6 +156,8 @@ class PostHtmlWidget extends StatelessWidget {
           maxImageWidth,
           codeBlockMaxLines,
           ...codeBlocks,
+          // 公式原文同样旁路注入（HTML 里只有占位元素），必须进指纹
+          for (final m in mathBlocks) '${m.display}:${m.tex}',
         ]),
       ),
       // 关闭异步构建：帖子正文需要与滚动同步构建，且便于测试确定性
@@ -181,6 +188,36 @@ class PostHtmlWidget extends StatelessWidget {
             // 代码块跟随正文字号，上限同步设置项上限（曾封顶 16，字号调大后代码块不跟）
             fontSize: textSize.clamp(11, 32).toDouble(),
             maxLines: codeBlockMaxLines,
+          );
+        }
+        // [appdata] math 占位 → LaTeX 公式组件
+        final mathIndex = element.attributes['data-math-index'];
+        if (mathIndex != null) {
+          final i = int.tryParse(mathIndex) ?? -1;
+          if (i < 0 || i >= mathBlocks.length) return const SizedBox.shrink();
+          final math = mathBlocks[i];
+          final mathStyle = TextStyle(fontSize: textSize, color: cs.onSurface);
+          final widget = Math.tex(
+            _normalizeMathTex(math.tex),
+            mathStyle: math.display ? MathStyle.display : MathStyle.text,
+            textStyle: mathStyle,
+            // 不支持的宏/语法：退回原始 TeX，保证内容不丢
+            onErrorFallback: (_) => Text(
+              math.tex,
+              style: mathStyle.copyWith(fontFamily: 'monospace'),
+            ),
+          );
+          if (!math.display) {
+            return InlineCustomWidget(
+              alignment: PlaceholderAlignment.baseline,
+              baseline: TextBaseline.alphabetic,
+              child: widget,
+            );
+          }
+          // 长公式不撑破屏幕，块级公式允许横向滚动
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: widget,
           );
         }
         // img → 表情内联 / 帖子图片块级

@@ -10,10 +10,12 @@ import 'package:mtbbs/widgets/common/page_actions.dart';
 import 'package:mtbbs/core/app/site_session.dart';
 import 'package:mtbbs/core/app/site_scope.dart';
 import 'package:mtbbs/core/app/session_registry.dart';
-import 'package:mtbbs/core/app/verification_gate.dart';
+import 'package:mtbbs/core/app/app_orchestrator.dart';
+import 'package:mtbbs/core/app/site_store.dart';
 import 'package:mtbbs/core/app/emoji_loader.dart';
 import 'package:mtbbs/widgets/layout/page_error_widget.dart';
 import 'package:mtbbs/widgets/thread/thread_post_card.dart';
+import 'package:mtbbs/widgets/thread/post_source_sheet.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/bbcode/post_html_widget.dart';
 import 'package:mtbbs/widgets/dialog/page_jump_dialog.dart';
@@ -22,6 +24,7 @@ import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 import 'package:mtbbs/widgets/layout/state_views.dart';
 import 'package:mtbbs/api/forum/viewthread/detail/export.dart' as detail_api;
 import 'package:mtbbs/api/forum/viewthread/action/export.dart' as action_api;
+import 'package:mtbbs/api/forum/viewthread/redirect/export.dart' as redirect_api;
 import 'package:mtbbs/api/forum/viewthread/viewpid/export.dart' as viewpid_api;
 import 'package:mtbbs/api/home/favorite/export.dart' as favorite_api;
 import 'package:mtbbs/core/utils/logger.dart';
@@ -39,6 +42,7 @@ import 'package:mtbbs/pages/editor/mt_image_sheet.dart';
 import 'package:mtbbs/services/mt_image_hosting.dart';
 import 'package:mtbbs/providers/editor_history_provider.dart';
 import 'package:mtbbs/widgets/editor/mini_editor_bar.dart';
+import 'package:mtbbs/widgets/editor/captcha_field.dart';
 import 'package:mtbbs/providers/history_provider.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/auth/providers/auth_provider.dart';
@@ -188,6 +192,14 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
   bool _editorExpanded = false;
   bool _editorSubmitting = false;
 
+  // ---- 身份监听：编辑期间切站点/切账号必须收起编辑器 ----
+  //
+  // 迷你编辑器复用的 `_editorSession.pageData.formhash` 属于展开时的身份，
+  // 换身份后继续提交会拿旧 formhash 发给新账号，必须丢弃该状态。
+  AuthProvider? _authRef;
+  String _identityKey = '';
+  bool _identityBound = false;
+
   /// 当前回复目标（null = 评论帖子；非空 = 回复该评论）
   String? _replyTargetName;
   String? _replyTargetPid;
@@ -214,6 +226,12 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
     // 站点会话只能在依赖阶段读取（initState 里不允许依赖 InheritedWidget）。
     // 首次拿到会话后再启动加载，保证请求走的是本页站点的 Dio。
     _session = SiteScope.of(context);
+    if (!_identityBound) {
+      _identityBound = true;
+      _authRef = context.read<AuthProvider>();
+      _identityKey = _identityKeyOf();
+      _authRef!.addListener(_onIdentityChanged);
+    }
     if (_sessionBound) return;
     _sessionBound = true;
     if (_isCacheMode) {
@@ -223,8 +241,27 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
     }
   }
 
+  String _identityKeyOf() =>
+      '${SiteStore.instance.host}|${_authRef?.uid ?? ''}';
+
+  /// 编辑期间切换站点/账号 → 收起迷你编辑器并丢弃旧身份的页面数据。
+  ///
+  /// 正文草稿保留（用户输入），但 formhash / 引用帖 / 已上传图片都绑定旧身份，
+  /// 下一次展开会按新身份重新抓取（`_ensureEditorPageData(force: true)`）。
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    final key = _identityKeyOf();
+    if (key == _identityKey) return;
+    _identityKey = key;
+    if (!_editorExpanded) return;
+    _collapseEditor();
+    _images.reset();
+    showToast('身份已切换，已退出编辑（草稿保留）');
+  }
+
   @override
   void dispose() {
+    _authRef?.removeListener(_onIdentityChanged);
     _images.removeListener(_onImagesChanged);
     _images.dispose();
     _editorSession.dispose();
@@ -350,6 +387,16 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
                     ],
                   ),
                 ),
+                const PopupMenuItem<String>(
+                  value: 'codec_tool',
+                  child: Row(
+                    children: [
+                      Icon(Icons.code, size: 18),
+                      SizedBox(width: 8),
+                      Text('编解码工具'),
+                    ],
+                  ),
+                ),
                 if (tidNum != null) ...[
                   const PopupMenuDivider(),
                   PopupMenuItem<String>(
@@ -399,6 +446,9 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
                 case 'save_offline':
                   _handleSaveOffline();
                   return;
+                case 'codec_tool':
+                  context.push('/tools/codec');
+                  return;
               }
               final tidNum = int.tryParse(widget.tid);
               if (tidNum == null) return;
@@ -431,9 +481,6 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
                     onRetry: _isCacheMode
                         ? _loadCacheInitial
                         : () => _loadInitial(),
-                    // 人机验证 / 防火墙拦截时自动恢复可能失败（自解不了或写错罐），
-                    // 给用户一个直接过验证的入口
-                    onVerify: _isCacheMode ? null : _verifyFromErrorPage,
                     extraActions: [
                       if (!_isCacheMode &&
                           _errorCacheCandidates.isNotEmpty)

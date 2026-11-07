@@ -9,6 +9,7 @@ import 'package:mtbbs/widgets/bbcode/bbcode_controller.dart';
 import 'package:mtbbs/widgets/bbcode/bbcode_toolbar.dart';
 import 'package:mtbbs/widgets/bbcode/post_html_widget.dart';
 import 'package:mtbbs/widgets/dialog/quick_reply_dialog.dart';
+import 'package:mtbbs/widgets/common/identity_avatar_button.dart';
 import 'package:mtbbs/widgets/editor/editor_selection_toolbar.dart';
 
 /// 迷你编辑器 — 帖子页 / 私信页内嵌使用的紧凑编辑表面。
@@ -40,6 +41,7 @@ class MiniEditorBar extends StatefulWidget {
     this.maxLength,
     this.submitLabel = '发送',
     this.badges = const {},
+    this.captchaField,
   });
 
   /// 正文控制器（通常来自 `EditorSession.contentCtl`；私信页可独立创建）
@@ -85,6 +87,9 @@ class MiniEditorBar extends StatefulWidget {
   /// 工具栏角标：item id → 数量（如「图片」已上传的数量）。
   /// 有角标的项无视隐藏设置强制显示（与完整编辑器一致）。
   final Map<String, int> badges;
+
+  /// 验证码输入行（站点要求验证码时由调用方注入，避免迷你版与完整版各写一套）
+  final Widget? captchaField;
 
   @override
   State<MiniEditorBar> createState() => _MiniEditorBarState();
@@ -165,6 +170,10 @@ class _MiniEditorBarState extends State<MiniEditorBar> {
           _buildTopRow(cs, items, shortcuts),
           const SizedBox(height: 6),
           _buildBody(cs),
+          if (widget.captchaField != null) ...[
+            const SizedBox(height: 6),
+            widget.captchaField!,
+          ],
           const SizedBox(height: 6),
           _buildActionRow(cs),
         ],
@@ -324,6 +333,11 @@ class _MiniEditorBarState extends State<MiniEditorBar> {
             visualDensity: VisualDensity.compact,
             onPressed: widget.submitting ? null : widget.onExpandToFull,
           ),
+        // 当前身份头像：放左下角，避免挤占上方工具栏；提交前可确认所用账号
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4),
+          child: Center(child: IdentityAvatarButton(radius: 12)),
+        ),
         const Spacer(),
         ValueListenableBuilder<TextEditingValue>(
           valueListenable: widget.contentCtl,
