@@ -53,6 +53,12 @@ class CommentSection extends StatelessWidget {
   /// 只读模式（缓存快照页）：隐藏互动入口
   final bool readOnly;
 
+  /// 当前是否处于「只看楼主」筛选状态。
+  ///
+  /// 仅用于空态文案：筛选后本页可能一个楼层都不剩，但后面几页也许还有
+  /// 楼主的回复，此时说「暂无评论」会误导。
+  final bool onlyOpAuthor;
+
   const CommentSection({
     super.key,
     required this.posts,
@@ -67,6 +73,7 @@ class CommentSection extends StatelessWidget {
     this.onPopupAction,
     this.globalDisableStyle = false,
     this.readOnly = false,
+    this.onlyOpAuthor = false,
   });
 
   @override
@@ -118,12 +125,23 @@ class CommentSection extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.forum_outlined, size: 40, color: cs.outlineVariant),
+            Icon(
+              onlyOpAuthor ? Icons.person_search_outlined : Icons.forum_outlined,
+              size: 40,
+              color: cs.outlineVariant,
+            ),
             const SizedBox(height: 8),
             Text(
-              '暂无评论',
+              onlyOpAuthor ? '本页没有楼主的回复' : '暂无评论',
               style: TextStyle(fontSize: 14, color: cs.onSurfaceVariant),
             ),
+            if (onlyOpAuthor) ...[
+              const SizedBox(height: 4),
+              Text(
+                '可以翻到下一页看看',
+                style: TextStyle(fontSize: 12, color: cs.outline),
+              ),
+            ],
           ],
         ),
       ),
@@ -142,8 +160,15 @@ class CommentSection extends StatelessWidget {
     required VoidCallback? onRefresh,
     int? windowEnd,
     VoidCallback? onTitleTap,
+    /// 「只看楼主」当前是否开启；null = 不显示该按钮（如只读缓存页）
+    bool? onlyOpAuthor,
+    VoidCallback? onToggleOnlyOpAuthor,
   }) {
     final cs = Theme.of(context).colorScheme;
+    // 固化「只看楼主」胶囊的显示条件与开关态。
+    // 命名参数是 bool?，直接用可能拿不到类型提升，这里先收敛成非空值。
+    final showOnlyOpChip = onlyOpAuthor != null && onToggleOnlyOpAuthor != null;
+    final onlyOpOn = onlyOpAuthor ?? false;
     // 扩窗模式：页码显示区间（如 1-3 / 20），未扩窗时 windowEnd == currentPage 退化单页
     final pageLabel = (windowEnd != null && windowEnd > currentPage)
         ? '$currentPage-$windowEnd / $totalPages'
@@ -153,25 +178,101 @@ class CommentSection extends StatelessWidget {
       color: cs.surface,
       child: Row(
         children: [
-          Icon(Icons.forum_outlined, size: 18, color: cs.onSurfaceVariant),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: onTitleTap,
-            behavior: HitTestBehavior.opaque,
-            child: Text(
-              '评论区',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: cs.onSurface,
-                // 下划线表示可点击（点击后输入楼层并跳转）
-                decoration: onTitleTap == null
-                    ? null
-                    : TextDecoration.underline,
-              ),
+          // 标题与筛选胶囊作为一个整体占用剩余宽度：标题靠左，胶囊紧随其后，
+          // 多余空间由这层 Expanded 吸收（等价于原来的 Spacer）。
+          // 这样胶囊能用上「标题之后、右侧控件之前」的全部空间，窄屏也不会溢出。
+          Expanded(
+            child: Row(
+              children: [
+                Icon(
+                  Icons.forum_outlined,
+                  size: 18,
+                  color: cs.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: onTitleTap,
+                  behavior: HitTestBehavior.opaque,
+                  child: Text(
+                    '评论区',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                      // 下划线表示可点击（点击后输入楼层并跳转）
+                      decoration: onTitleTap == null
+                          ? null
+                          : TextDecoration.underline,
+                    ),
+                  ),
+                ),
+                // 「只看楼主」：筛选型操作，用紧凑胶囊而非 Switch。
+                //
+                // 评论区头部横向已排满（刷新 / 上一页 / 页码 / 下一页），既不能加
+                // 行高也不能占太宽，所以做成 24 高的 chip 紧贴标题右侧：开启时用
+                // 主题色填充 + 实心图标 + 加粗表示「当前处于筛选状态」，关闭时只有
+                // 描边，不抢视线。
+                //
+                // 文案固定「只看楼主」不加后缀：开启态若多两个字，320dp 窄屏下
+                // 整行总宽会超过可用宽度，直接 RenderFlex overflow。
+                // 外层 Flexible 是兜底——极窄屏或大字体时文字省略，而不是报错。
+                if (showOnlyOpChip) ...[
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: GestureDetector(
+                      onTap: onToggleOnlyOpAuthor,
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        height: 24,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: onlyOpOn
+                              ? cs.primary.withValues(alpha: 0.12)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: onlyOpOn ? cs.primary : cs.outlineVariant,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              onlyOpOn
+                                  ? Icons.person
+                                  : Icons.person_outline_rounded,
+                              size: 13,
+                              color: onlyOpOn
+                                  ? cs.primary
+                                  : cs.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(
+                                '只看楼主',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.1,
+                                  fontWeight: onlyOpOn
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                  color: onlyOpOn
+                                      ? cs.primary
+                                      : cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          const Spacer(),
           IconButton(
             icon: const Icon(Icons.refresh, size: 18),
             onPressed: onRefresh,

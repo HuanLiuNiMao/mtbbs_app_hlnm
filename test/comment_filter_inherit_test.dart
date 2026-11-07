@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mtbbs/core/utils/content_filter.dart';
+import 'package:mtbbs/models/thread_detail.dart';
 
 /// 评论屏蔽词「继承」回归测试。
 ///
@@ -158,6 +159,47 @@ void main() {
       expect(stripped.onlyHiddenThread, isFalse);
       expect(stripped.boards, isEmpty);
       expect(stripped.showBlockedPlaceholder, isTrue);
+    });
+  });
+
+  group('filterOnlyOpAuthor — 只看楼主', () {
+    PostItem p(String uid, {String pid = '', bool isOp = false}) =>
+        PostItem(pid: pid, uid: uid, isOp: isOp);
+
+    test('opUid 为空时原样返回（避免把整页筛成空白）', () {
+      final posts = [p('1'), p('2')];
+      expect(filterOnlyOpAuthor(posts, ''), posts);
+      expect(filterOnlyOpAuthor(posts, '').length, 2);
+    });
+
+    test('只保留楼主 uid 的楼层', () {
+      final posts = [p('100'), p('200'), p('100'), p('300')];
+      final r = filterOnlyOpAuthor(posts, '100');
+      expect(r.length, 2);
+      expect(r.every((x) => x.uid == '100'), isTrue);
+    });
+
+    test('isOp 楼层永远保留（即使 uid 与 opUid 不一致）', () {
+      // 兼容主帖 uid 解析缺失/被置空的边界：isOp 本身就是楼主标记
+      final posts = [p('999', pid: 'a', isOp: true), p('100'), p('200')];
+      final r = filterOnlyOpAuthor(posts, '100');
+      expect(r.length, 2); // isOp 那条 + uid=100 那条
+      expect(r.any((x) => x.isOp), isTrue);
+    });
+
+    test('没人匹配时返回空列表（页面走空态文案）', () {
+      final posts = [p('200'), p('300')];
+      expect(filterOnlyOpAuthor(posts, '100'), isEmpty);
+    });
+
+    test('不修改入参列表', () {
+      final posts = [p('100'), p('200')];
+      filterOnlyOpAuthor(posts, '100');
+      expect(posts.length, 2);
+    });
+
+    test('空列表原样返回', () {
+      expect(filterOnlyOpAuthor(const [], '100'), isEmpty);
     });
   });
 }

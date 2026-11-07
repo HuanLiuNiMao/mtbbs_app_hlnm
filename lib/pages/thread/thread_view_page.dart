@@ -150,6 +150,16 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
   /// 扩窗页数上限（窗口最大宽度，防极端拉爆）
   static const int _commentMaxWindowWidth = 5;
 
+  /// 「只看楼主」：只看主题作者发的评论楼层。
+  ///
+  /// 纯**客户端**筛选（按 `_data.mainPost.uid` 过滤当前已加载的页），
+  /// 不用服务端 `authorid` 参数——那个参数会让解析层把第一楼也当评论，
+  /// 返回结果里 `mainPost` 为 null，页面上主帖会整块消失。这里只筛评论，
+  /// 主帖照常显示，切换也不需要额外请求。
+  ///
+  /// 状态不持久化：它是「针对当前帖子的临时视图」，换帖子应回到全部评论。
+  bool _onlyOpAuthor = false;
+
   // ---- 滚动 ----
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _commentAnchorKey = GlobalKey();

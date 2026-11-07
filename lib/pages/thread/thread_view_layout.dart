@@ -70,6 +70,8 @@ extension on _ThreadViewPageState {
                 onRefresh: _isCacheMode ? null : _refreshCurrentPage,
                 windowEnd: _windowEnd,
                 onTitleTap: _isCacheMode ? null : _showFloorJumpDialog,
+                onlyOpAuthor: _isCacheMode ? null : _onlyOpAuthor,
+                onToggleOnlyOpAuthor: _isCacheMode ? null : _toggleOnlyOpAuthor,
               ),
             ),
           ),
@@ -141,6 +143,19 @@ extension on _ThreadViewPageState {
 
   // ==================== 评论区 ====================
 
+  /// 切换「只看楼主」。
+  ///
+  /// 切换后列表立刻按新条件重算（build 里过滤），不需要重新请求。
+  /// 楼主 uid 拿不到时（主帖未加载 / 解析异常）直接拒绝，否则会因空 uid
+  /// 把整页评论筛成空白，用户会以为帖子出了问题。
+  void _toggleOnlyOpAuthor() {
+    if (_data?.mainPost?.uid.isEmpty ?? true) {
+      showToast('楼主信息未加载，暂时无法只看楼主');
+      return;
+    }
+    _setState(() => _onlyOpAuthor = !_onlyOpAuthor);
+  }
+
   Widget _buildCommentContent() {
     var currentPosts = _commentPages[_currentPage];
     // 只读缓存：缺失页 = 未缓存，与「已缓存但无评论」区分
@@ -182,6 +197,17 @@ extension on _ThreadViewPageState {
             _ThreadViewPageState._commentMaxWindowWidth) {
       Future<void>(() => _maybeExtendCommentWindow(currentPosts!.length));
     }
+    // 只看楼主：按主帖作者 uid 过滤当前页评论（纯客户端筛选，见状态字段注释）。
+    //
+    // 必须放在**补页判定之后**：补页看的是「屏蔽后还剩多少」，若先按楼主筛，
+    // 可见量天然远小于一页基准，会一直满足扩窗条件，白白多拉好几页网络请求，
+    // 而扩来的页里绝大多数楼层仍会被筛掉。
+    if (_onlyOpAuthor && currentPosts != null) {
+      currentPosts = filterOnlyOpAuthor(
+        currentPosts,
+        _data?.mainPost?.uid ?? '',
+      );
+    }
     return CommentSection(
       posts: currentPosts ?? [],
       postKeys: _postKeys,
@@ -192,6 +218,7 @@ extension on _ThreadViewPageState {
       opUid: _data?.mainPost?.uid ?? '',
       globalDisableStyle: _globalDisableStyle,
       readOnly: _isCacheMode || _session.temporary,
+      onlyOpAuthor: _onlyOpAuthor,
       onReply: (post) => _replyToPost(post),
       onRecommend: _handleRecommend,
       onPopupAction: (action, post) {
@@ -230,6 +257,9 @@ extension on _ThreadViewPageState {
           onRefresh: _isCacheMode ? null : _refreshCurrentPage,
           windowEnd: _windowEnd,
           onTitleTap: _isCacheMode ? null : _showFloorJumpDialog,
+          // 只读缓存是整帖快照，筛选它没有意义
+          onlyOpAuthor: _isCacheMode ? null : _onlyOpAuthor,
+          onToggleOnlyOpAuthor: _isCacheMode ? null : _toggleOnlyOpAuthor,
         ),
         const Divider(height: 1),
         Expanded(child: SingleChildScrollView(child: _buildCommentContent())),

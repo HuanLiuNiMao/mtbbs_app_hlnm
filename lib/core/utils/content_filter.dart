@@ -415,6 +415,23 @@ List<PostItem> filterPostItems(
   }).toList();
 }
 
+// ==================== 只看楼主 ====================
+
+/// 只保留楼主（主题作者）发的楼层。
+///
+/// 用于帖子详情页「评论区」的「只看楼主」筛选。
+///
+/// 与 `authorid` 服务端筛选的区别：服务端筛选会让返回结果里**没有主帖**
+/// （`authorid` 非空时解析层把第一楼也当评论），页面上的主帖会整块消失；
+/// 这里只筛评论楼层，主帖照常显示，且不需要额外请求。
+///
+/// [opUid] 为空（主帖未加载 / 解析不到作者 uid）时原样返回，不做筛选——
+/// 否则会因 `p.uid == ''` 匹配不到任何楼层而显示空白。
+List<PostItem> filterOnlyOpAuthor(List<PostItem> posts, String opUid) {
+  if (opUid.isEmpty) return posts;
+  return posts.where((p) => p.isOp || p.uid == opUid).toList();
+}
+
 // ==================== 功能①扩展：按列表点的独立屏蔽配置 ====================
 
 /// 帖子列表点标识：社区页（含标签页）
