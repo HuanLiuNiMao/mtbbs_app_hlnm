@@ -69,6 +69,19 @@ class AppPaths {
   static Future<String> get exportsDir async =>
       '${await appDataDir}${p.separator}exports';
 
+  /// 本地自动备份目录 `{appDataDir}/backups/`
+  ///
+  /// 为什么不是 `exports/`：导出目录是「用户主动另存为的落地兜底」，
+  /// 本地自动备份是「后台按周期滚动的环形存档」，语义与生命周期都不同 ——
+  /// 混在一起会让「清理旧备份」误删用户手动导出的文件。
+  ///
+  /// 放在应用私有目录（而非外置存储）：后台任务在 WorkManager 的独立
+  /// isolate 里跑，没有 Activity 可用，无法弹 SAF 授权；私有目录不需要
+  /// 任何运行时权限，卸载时随应用一起清除，也避免备份里的 Cookie 明文
+  /// 落在其他应用可读的位置。
+  static Future<String> get backupsDir async =>
+      '${await appDataDir}${p.separator}backups';
+
   // ==================== Cookie ====================
 
   /// `{appDataDir}/cookies/`
