@@ -15,11 +15,13 @@ import 'package:mtbbs/platform/optional/file_pick.dart';
 import 'package:mtbbs/platform/optional/file_save.dart';
 import 'package:mtbbs/platform/optional/secure_store.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
+import 'package:mtbbs/services/backup/backup_local_store.dart';
 import 'package:mtbbs/services/backup/backup_log_store.dart';
 import 'package:mtbbs/services/backup/backup_pack.dart';
 import 'package:mtbbs/services/backup/backup_registry.dart';
 import 'package:mtbbs/services/backup/backup_service.dart';
 import 'package:mtbbs/services/backup/backup_web_client.dart';
+import 'package:mtbbs/services/data_portability.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 
@@ -29,7 +31,8 @@ import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 /// 1. **备份内容**：`BackupCatalog` 声明的复选框树（分组 / 半选 / 依赖级联）；
 /// 2. **备份 / 恢复**：立即导出（剪切板或文件）、从剪切板 / 文件导入，
 ///    导入前预览模块清单并二次确认敏感项；
-/// 3. **Web 备份**：用户自备服务器的地址 / 鉴权 / 间隔 / 仅 Wi-Fi / 附带日志。
+/// 3. **本地备份**：定时把备份包写进应用私有目录，按份数轮转；
+/// 4. **Web 备份**：用户自备服务器的地址 / 鉴权 / 间隔 / 仅 Wi-Fi / 附带日志。
 ///
 /// 设计约束（见 docs/28）：
 /// - 勾选状态只落独立 KV 键 `backupSettings`（`BackupSettingsStore`），
@@ -48,6 +51,9 @@ class BackupPage extends StatefulWidget {
 class _BackupPageState extends State<BackupPage> {
   bool _busy = false;
 
+  /// 本次会话里刚删掉的本地备份文件名（仅用于弹窗内即时刷新，不持久化）
+  final Set<String> _deleted = <String>{};
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
@@ -64,6 +70,10 @@ class _BackupPageState extends State<BackupPage> {
           _buildExportCard(settings, selection),
           _sectionHeader('恢复', '导入前会列出包内模块，可再次挑选要恢复的项'),
           _buildImportCard(settings),
+          _sectionHeader('账号 Cookie', '单独导出 / 导入登录凭据，与上游格式一致'),
+          _buildCookiesCard(settings),
+          _sectionHeader('本地备份', '存在应用私有目录，卸载即清；不需要网络'),
+          _buildLocalCard(settings, backup),
           _sectionHeader('Web 备份', '服务器由你自备，本应用不提供托管空间'),
           _buildWebCard(settings, backup),
           _sectionHeader('运行日志', '每次备份 / 恢复都会留一条记录，环形保留'),
@@ -313,6 +323,15 @@ class _BackupPageState extends State<BackupPage> {
   }) async {
     final text = await _readBackupText(fromFile: fromFile);
     if (text == null || !mounted) return;
+    await _importText(settings, text);
+  }
+
+  /// 对一段备份 JSON 文本执行导入。
+  ///
+  /// 三个入口共用：从文件、从剪切板、从本机备份文件。
+  /// 抽出来是为了让「本机备份」也能走同一套敏感项确认 / 模块挑选 / 策略选择，
+  /// 否则两套导入流程迟早会在某个校验上分叉。
+  Future<void> _importText(SettingsProvider settings, String text) async {
     final BackupPack pack;
     try {
       pack = BackupService.instance.parse(text);
@@ -448,6 +467,473 @@ class _BackupPageState extends State<BackupPage> {
         ),
       ),
     );
+  }
+
+  // ==================== 本地备份 ====================
+
+  Widget _buildLocalCard(SettingsProvider settings, BackupSettings backup) {
+    final local = backup.local;
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Column(
+        children: [
+          SwitchListTile(
+            secondary: const Icon(Icons.phone_android_outlined),
+            title: const Text('启用本地备份'),
+            subtitle: const Text('定时把备份包写进本机，断网也能恢复'),
+            value: local.enabled,
+            onChanged: (v) => settings.setLocalBackupEnabled(v),
+          ),
+          if (local.enabled) ...[
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.schedule),
+              title: const Text('定时备份'),
+              subtitle: Text(
+                local.scheduled
+                    ? '每 ${local.schedule.label}（${_scheduleHint(local.schedule)}）'
+                    : '关闭（仅手动备份）',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _editLocalSchedule(settings, local),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.inventory_2_outlined),
+              title: const Text('保留份数'),
+              subtitle: Text(
+                local.keepCount <= 0
+                    ? '不清理（全部保留）'
+                    : '只留最新 ${local.effectiveKeepCount} 份，更早的自动删除',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => showNumberDialog(
+                context: context,
+                title: '保留份数',
+                description: '超出份数时删除最旧的。0 = 全部保留。',
+                initValue: local.keepCount,
+                min: 0,
+                max: 100,
+                helperText: '默认 5',
+                onSave: (v) async {
+                  await settings.setLocalBackupKeepCount(v);
+                  settings.applyBackupRuntimeConfig();
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.save_outlined),
+              title: const Text('立即备份到本机'),
+              subtitle: Text(
+                local.lastRunAt.isEmpty
+                    ? '从未备份'
+                    : '上次：${_fmtTime(DateTime.tryParse(local.lastRunAt))}'
+                          '${local.lastResult.isEmpty ? '' : ' · ${local.lastResult}'}',
+              ),
+              enabled: !_busy,
+              onTap: _busy ? null : () => _runLocalBackup(settings),
+            ),
+          ],
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.folder_open_outlined),
+            title: const Text('本机备份文件'),
+            subtitle: const Text('查看 / 恢复 / 删除已保存的备份'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _busy ? null : () => _showLocalFiles(settings),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 立即备份到本机：与定时任务走同一条收集路径，只是不经过 WorkManager。
+  ///
+  /// 为什么不直接排一次后台任务：后台 isolate 要重新读站点/设置，而用户
+  /// 点「立即」的期望是「马上看到文件」；此外部分机型首次注册一次性任务
+  /// 有可见延迟。这里在主 isolate 直接生成 + 写盘，结果当场回写。
+  Future<void> _runLocalBackup(SettingsProvider settings) async {
+    final selection = settings.backupSelection;
+    if (selection.count == 0) {
+      showToast('请先勾选至少一个备份项');
+      return;
+    }
+    final local = settings.backupSettings.local;
+    setState(() => _busy = true);
+    try {
+      final result = await BackupService.instance.exportToJson(
+        selection,
+        trigger: 'manual',
+        includeLogs: false,
+      );
+      final name = await BackupLocalStore.instance.save(
+        result.json,
+        keepCount: local.effectiveKeepCount,
+      );
+      if (!mounted) return;
+      await settings.markLocalBackupRun(
+        at: DateTime.now(),
+        result: 'ok',
+        fileName: name,
+      );
+      if (!mounted) return;
+      showToast('已备份到本机：$name');
+    } catch (e) {
+      if (!mounted) return;
+      await settings.markLocalBackupRun(
+        at: DateTime.now(),
+        result: 'failed: $e',
+      );
+      if (mounted) showToast('本地备份失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 本地备份文件列表：可恢复 / 可删除。
+  ///
+  /// 恢复走与「从文件恢复」完全相同的 apply 流程（含敏感项确认、
+  /// 模块挑选、合并/覆盖策略），只是文本来源换成私有目录里的文件。
+  Future<void> _showLocalFiles(SettingsProvider settings) async {
+    final files = await BackupLocalStore.instance.list();
+    if (!mounted) return;
+    if (files.isEmpty) {
+      showToast('还没有本机备份文件');
+      return;
+    }
+    final picked = await showDialog<LocalBackupFile>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        // 删完要当场刷新列表：重建整张弹窗比「关掉再让用户点开」自然，
+        // 也不会让用户以为删除没生效。
+        builder: (ctx, setLocal) {
+          final items = files.where((f) => !_deleted.contains(f.name)).toList();
+          final total = items.fold<int>(0, (s, f) => s + f.sizeBytes);
+          return AlertDialog(
+            title: const Text('本机备份文件'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    items.isEmpty
+                        ? '已清空'
+                        : '共 ${items.length} 份 · ${_sizeLabel(total)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(ctx).colorScheme.outline,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // 固定最大高度：备份多时列表自己滚，不把弹窗撑出屏幕
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      itemBuilder: (_, i) {
+                        final f = items[i];
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.description_outlined),
+                          title: Text(_prettyName(f.name)),
+                          subtitle: Text(
+                            '${_fmtTime(f.modifiedAt)} · ${f.sizeLabel}',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            tooltip: '删除',
+                            onPressed: () async {
+                              final ok = await showConfirmDialog(
+                                ctx,
+                                title: '删除备份',
+                                message: '确认删除 ${f.name}？此操作不可撤销。',
+                                confirmText: '删除',
+                                danger: true,
+                              );
+                              if (ok != true) return;
+                              await BackupLocalStore.instance.delete(f.name);
+                              if (!ctx.mounted) return;
+                              setLocal(() => _deleted.add(f.name));
+                            },
+                          ),
+                          onTap: () => Navigator.of(ctx).pop(f),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('关闭'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await _restoreLocalFile(settings, picked);
+  }
+
+  /// 从某个本地备份文件恢复（复用导入流程）
+  Future<void> _restoreLocalFile(
+    SettingsProvider settings,
+    LocalBackupFile file,
+  ) async {
+    final String text;
+    try {
+      text = await BackupLocalStore.instance.read(file.name);
+    } catch (e) {
+      if (mounted) showToast('读取失败：$e');
+      return;
+    }
+    if (!mounted) return;
+    await _importText(settings, text);
+  }
+
+  /// 编辑本地备份定时（与 Web 那套交互一致，只是写到 local 上）
+  Future<void> _editLocalSchedule(
+    SettingsProvider settings,
+    LocalBackupConfig local,
+  ) async {
+    final s = local.schedule;
+    await showNumberDialog(
+      context: context,
+      title: '定时备份间隔',
+      description: '0 = 关闭定时。单位在下一步选择。',
+      initValue: s.interval,
+      min: 0,
+      max: 9999,
+      helperText: '当前：${s.label}',
+      onSave: (v) async {
+        if (v == 0) {
+          await settings.setLocalBackupSchedule(s.copyWith(interval: 0));
+          settings.applyBackupRuntimeConfig();
+          return;
+        }
+        if (!mounted) return;
+        final unit = await showSelectDialog<BackupIntervalUnit>(
+          context: context,
+          title: '间隔单位',
+          selected: s.unit,
+          options: [
+            for (final u in BackupIntervalUnit.values)
+              SelectOption(value: u, label: u.label),
+          ],
+        );
+        if (unit == null) return;
+        await settings.setLocalBackupSchedule(
+          s.copyWith(interval: v, unit: unit),
+        );
+        settings.applyBackupRuntimeConfig();
+      },
+    );
+  }
+
+  // ==================== 独立 Cookie 备份 ====================
+
+  /// 独立的「导出 / 导入账号 Cookie」入口。
+  ///
+  /// 产物格式是上游那套 `mtbbs.cookies` v1（`DataPortability`），
+  /// 与备份包里的 `cookies` 模块**同源**：都是先 `exportCookiesJson()`
+  /// 再剥字段。所以这里导出的文件也能被上游 App 直接导入，反之亦然。
+  Widget _buildCookiesCard(SettingsProvider settings) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.cookie_outlined),
+            title: const Text('导出账号 Cookie'),
+            subtitle: const Text('各站点登录凭据（mtbbs.cookies，上游可直接导入）'),
+            enabled: !_busy,
+            onTap: _busy ? null : () => _exportCookiesOnly(),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.download_for_offline_outlined),
+            title: const Text('导入账号 Cookie'),
+            subtitle: const Text('覆盖本机 Cookie，不动账号列表'),
+            enabled: !_busy,
+            onTap: _busy ? null : () => _importCookiesOnly(settings),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 只导出 Cookie（不含账号列表），格式与上游一致
+  Future<void> _exportCookiesOnly() async {
+    setState(() => _busy = true);
+    try {
+      final doc =
+          (jsonDecode(await DataPortability.exportCookiesJson()) as Map)
+              .cast<String, dynamic>();
+      // 剥掉 accounts：账号列表属另一项，这里只给凭据
+      final sites = doc['sites'];
+      if (sites is List) {
+        doc['sites'] = [
+          for (final raw in sites)
+            if (raw is Map)
+              {
+                'host': raw['host'],
+                'baseUrl': raw['baseUrl'],
+                'cookies': raw['cookies'],
+              },
+        ];
+      }
+      final json = const JsonEncoder.withIndent('  ').convert(doc);
+      if (!mounted) return;
+      await _deliverJson(json, 'mtbbs_cookies');
+      if (mounted) showToast('已导出 Cookie');
+    } catch (e) {
+      if (mounted) showToast('导出失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 只导入 Cookie：从文件或剪切板读 `mtbbs.cookies`
+  Future<void> _importCookiesOnly(SettingsProvider settings) async {
+    final mode = await showSelectDialog<String>(
+      context: context,
+      title: 'Cookie 来源',
+      options: const [
+        SelectOption(
+          value: 'file',
+          icon: Icons.folder_open,
+          label: '选择文件',
+        ),
+        SelectOption(
+          value: 'clipboard',
+          icon: Icons.content_paste,
+          label: '从剪切板粘贴',
+        ),
+        SelectOption(
+          value: 'local',
+          icon: Icons.phone_android_outlined,
+          label: '从本机备份中选',
+          description: '本机备份里的 cookies 模块',
+        ),
+      ],
+    );
+    if (mode == null || !mounted) return;
+    String? text;
+    if (mode == 'clipboard') {
+      text = await ClipboardHelper.read();
+      if (text == null || text.trim().isEmpty) {
+        if (mounted) showToast('剪切板为空');
+        return;
+      }
+    } else if (mode == 'file') {
+      text = await _readBackupText(fromFile: true);
+    } else {
+      text = await _pickCookiesFromLocal();
+    }
+    if (text == null || text.trim().isEmpty || !mounted) return;
+
+    // 两种来源都接受：独立的 mtbbs.cookies，或含 cookies 模块的备份包。
+    String payload;
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) throw const FormatException('不是有效的 JSON 对象');
+      final doc = decoded.cast<String, dynamic>();
+      final format = doc['format']?.toString() ?? '';
+      if (format == DataPortability.cookiesFormat) {
+        payload = text;
+      } else {
+        // 备份包：取出 cookies 模块的 payload 再走同一导入器。
+        // 注意 modules 是「键 → payload」，取出来直接就是那段 JSON。
+        final pack = BackupService.instance.parse(text);
+        final module = pack.modules['cookies'];
+        if (module == null) {
+          if (mounted) showToast('该备份包里没有 Cookie 模块');
+          return;
+        }
+        payload = jsonEncode(module);
+      }
+    } catch (e) {
+      if (mounted) showToast('无法识别该内容：$e');
+      return;
+    }
+    if (!mounted) return;
+    final ok = await showConfirmDialog(
+      context,
+      title: '覆盖本机 Cookie？',
+      message: '导入会用文件里的凭据替换本机各站点 Cookie，'
+          '账号列表不受影响。若当前处于登录状态，可能需要重新登录。',
+      confirmText: '覆盖',
+      danger: true,
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final result = await DataPortability.importCookiesJson(payload);
+      if (!mounted) return;
+      if (result.hosts.isNotEmpty) {
+        await settings.load();
+        settings.applyRuntimeConfig();
+      }
+      if (!mounted) return;
+      showToast(
+        '已导入 ${result.jars} 份 Cookie，涉及 ${result.hosts.length} 个站点',
+      );
+    } catch (e) {
+      if (mounted) showToast('导入失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 从本机备份文件里挑一个，取出其 cookies 模块的 JSON
+  Future<String?> _pickCookiesFromLocal() async {
+    final files = await BackupLocalStore.instance.list();
+    if (!mounted) return null;
+    if (files.isEmpty) {
+      showToast('还没有本机备份文件');
+      return null;
+    }
+    final picked = await showSelectDialog<LocalBackupFile>(
+      context: context,
+      title: '选择本机备份',
+      options: [
+        for (final f in files)
+          SelectOption(
+            value: f,
+            icon: Icons.description_outlined,
+            label: _prettyName(f.name),
+            description: '${_fmtTime(f.modifiedAt)} · ${f.sizeLabel}',
+          ),
+      ],
+    );
+    if (picked == null || !mounted) return null;
+    try {
+      return await BackupLocalStore.instance.read(picked.name);
+    } catch (e) {
+      if (mounted) showToast('读取失败：$e');
+      return null;
+    }
+  }
+
+  static String _prettyName(String name) {
+    // mtbbs_auto_20251108_033512.json → 2025-11-08 03:35:12
+    final m = RegExp(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})')
+        .firstMatch(name);
+    if (m == null) return name;
+    return '${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}';
+  }
+
+  static String _sizeLabel(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
   }
 
   // ==================== Web 备份 ====================
