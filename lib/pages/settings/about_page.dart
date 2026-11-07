@@ -25,7 +25,8 @@ import 'package:mtbbs/widgets/common/user_avatar.dart';
 
 /// 关于页 — 应用标识、作者、相关链接与版本信息。
 ///
-/// 作者资料按 [authorUid] 从站点动态获取（首次取到后持久化，之后只读缓存）。
+/// 作者资料按 [authorUid] 从站点动态获取并持久化缓存（有效期见
+/// [_AboutPageState._profileCacheTtl]）；标题旁有刷新按钮可强制重取。
 /// 鸣谢名单已迁到 `assets/config/credits.json`，由致谢二级页展示，本页只留入口。
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key, this.showAppBar = true});
@@ -93,6 +94,14 @@ class _AboutPageState extends State<AboutPage> {
 
   /// 开发者选项解锁手势：未解锁时连点 [_unlockNeedTaps] 次（相邻间隔 ≤2s）解锁
   static const int _unlockNeedTaps = 7;
+
+  /// 作者资料的缓存有效期。
+  ///
+  /// 签名 / 等级 / 头衔这类字段会变，但变得很慢，没必要每次进页面都发请求；
+  /// 但也不能像早期那样**永久缓存**——那样作者改了签名，App 里永远是旧的。
+  /// 取 1 天：日常打开基本命中缓存，改完签名最多一天自动生效，
+  /// 想立刻看到可以点「作者」标题旁的刷新按钮。
+  static const Duration _profileCacheTtl = Duration(days: 1);
   int _unlockTaps = 0;
   DateTime? _lastUnlockTapAt;
 
@@ -101,6 +110,9 @@ class _AboutPageState extends State<AboutPage> {
 
   /// 本 fork 维护者资料（同上，固定 MT 论坛 uid 143407）
   UserProfile? _maintainer;
+
+  /// 是否正在手动刷新作者资料（用于禁用按钮 / 显示转圈）
+  bool _refreshingProfiles = false;
 
   /// 当前 [_author] 对应的站点（切换站点后需重新加载，避免显示别的站的资料）
   String? _authorLoadedHost;
@@ -141,40 +153,76 @@ class _AboutPageState extends State<AboutPage> {
     _loadAuthor();
   }
 
-  /// 加载开发者资料：先读持久化缓存，缺失时按 UID 抓取一次并写回
-  Future<void> _loadAuthor() async {
+  /// 加载开发者资料：先读持久化缓存（带有效期），失效或 [force] 时抓取并写回
+  Future<void> _loadAuthor({bool force = false}) async {
     // 固定本次加载所用的站点与 UID，避免加载途中切换站点导致串号
     final host = AboutPage.authorSiteHost;
     final uid = AboutPage.authorUid;
     _authorLoadedHost = host;
-    _author = await _loadProfile(host, uid, 'about_author');
+    _author = await _loadProfile(host, uid, 'about_author', force: force);
     // 维护者固定挂在 MT 论坛（与当前站点无关，个人空间链接也是 MT 的）
     _maintainer = await _loadProfile(
       SpecialThanks.defaultSiteHost,
       AboutPage.maintainerUid,
       'about_maintainer',
+      force: force,
     );
     if (mounted) setState(() {});
   }
 
+  /// 手动刷新作者资料：忽略缓存重新抓取（作者改了签名想立刻看到时用）
+  Future<void> _refreshProfiles() async {
+    if (_refreshingProfiles) return;
+    setState(() => _refreshingProfiles = true);
+    try {
+      await _loadAuthor(force: true);
+      if (mounted) showToast('作者资料已刷新');
+    } finally {
+      if (mounted) setState(() => _refreshingProfiles = false);
+    }
+  }
+
   /// 读取某个站点某 UID 的资料：先读持久化缓存，缺失时按 UID 抓取一次并写回。
   ///
-  /// 失败（人机验证 / 防火墙 / 网络异常）一律静默，返回 null 让调用方显示占位。
+  /// 失败（人机验证 / 防火墙 / 网络异常）一律静默：能拿到旧缓存就返回旧值，
+  /// 否则返回 null 让调用方显示占位。
   Future<UserProfile?> _loadProfile(
     String host,
     String uid,
-    String cacheKey,
-  ) async {
-    final cached = await SettingsRepository.instance.getSiteState(
-      host,
-      cacheKey,
-    );
-    if (cached != null && cached.isNotEmpty) {
-      try {
-        final map = jsonDecode(cached) as Map<String, dynamic>;
-        return UserProfile.fromMap(map);
-      } catch (_) {
-        // 缓存损坏则走网络重新获取
+    String cacheKey, {
+    bool force = false,
+  }) async {
+    // 缓存里能救出来的旧值：网络失败时拿它兜底，避免资料整块变空
+    UserProfile? stale;
+    if (!force) {
+      final cached = await SettingsRepository.instance.getSiteState(
+        host,
+        cacheKey,
+      );
+      if (cached != null && cached.isNotEmpty) {
+        try {
+          final doc = jsonDecode(cached) as Map<String, dynamic>;
+          // 新结构：{fetchedAt: <毫秒时间戳>, profile: {...}}
+          // 老结构：整份就是 UserProfile 的 map（没有 fetchedAt）
+          final fetchedAt = doc['fetchedAt'];
+          final profileMap = doc['profile'];
+          if (profileMap is Map) {
+            stale = UserProfile.fromMap(profileMap.cast<String, dynamic>());
+            if (fetchedAt is int) {
+              final age = DateTime.now().difference(
+                DateTime.fromMillisecondsSinceEpoch(fetchedAt),
+              );
+              if (age < _profileCacheTtl) return stale;
+            }
+            // 时间戳缺失或已过期 → 往下走网络
+          } else {
+            // 老结构：没有时间戳，无法判断新鲜度。先当兜底值留着，
+            // 网络重取一次升级成新结构（失败也不至于把已有资料清空）。
+            stale = UserProfile.fromMap(doc);
+          }
+        } catch (_) {
+          // 缓存损坏则走网络重新获取
+        }
       }
     }
     try {
@@ -199,19 +247,23 @@ class _AboutPageState extends State<AboutPage> {
         // 打上「已处理」标记，让拦截器直接返回原响应，静默失败保留占位即可。
         options: Options(extra: {kInterstitialHandledFlag: true}),
       );
-      if (raw['success'] != true || raw['profile'] == null) return null;
+      if (raw['success'] != true || raw['profile'] == null) return stale;
       final profile = UserProfile.fromMap(
         (raw['profile'] as Map).cast<String, dynamic>(),
       );
       await SettingsRepository.instance.setSiteState(
         host,
         cacheKey,
-        jsonEncode(profile.toMap()),
+        jsonEncode({
+          'fetchedAt': DateTime.now().millisecondsSinceEpoch,
+          'profile': profile.toMap(),
+        }),
       );
       return profile;
     } catch (e) {
       AppLogger.w('ABOUT', '作者信息获取失败($uid@$host): $e');
-      return null;
+      // 有旧值就用旧值，至少签名/等级不会突然变成空白
+      return stale;
     }
   }
 
@@ -277,7 +329,7 @@ class _AboutPageState extends State<AboutPage> {
         children: [
           _header(cs),
 
-          _sectionTitle('作者'),
+          _sectionTitle('作者', trailing: _authorRefreshButton(cs)),
           _authorCard(cs),
 
           _sectionTitle('相关链接'),
@@ -613,16 +665,58 @@ class _AboutPageState extends State<AboutPage> {
     if (target != null) context.push(target);
   }
 
-  Widget _sectionTitle(String text) {
+  Widget _sectionTitle(String text, {Widget? trailing}) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: cs.onSurfaceVariant,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
+  }
+
+  /// 「作者」标题右侧的刷新按钮：强制重新抓取作者资料（签名改了想立刻看到时用）
+  Widget _authorRefreshButton(ColorScheme cs) {
+    return InkWell(
+      onTap: _refreshingProfiles ? null : _refreshProfiles,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _refreshingProfiles
+                ? SizedBox(
+                    width: 11,
+                    height: 11,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.6,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  )
+                : Icon(
+                    Icons.refresh_rounded,
+                    size: 13,
+                    color: cs.onSurfaceVariant,
+                  ),
+            const SizedBox(width: 3),
+            Text(
+              '刷新',
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+            ),
+          ],
         ),
       ),
     );
