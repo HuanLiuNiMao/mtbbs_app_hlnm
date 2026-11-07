@@ -22,6 +22,13 @@ enum BackupItemId {
   contentFilter,
   mcpConfig,
   accountCookies,
+
+  /// 单独的 Cookie 备份项（与上游「导出账号 Cookie」同格式）。
+  ///
+  /// 与 [accountCookies] 拆开：账号列表是「谁登录过」，Cookie 是「登录凭据」，
+  /// 前者不敏感、后者敏感。用户常常只想搬账号列表、不想搬凭据，
+  /// 或者只想刷新凭据、不想动账号列表。
+  cookies,
 }
 
 /// 单个备份项的静态声明。
@@ -162,12 +169,20 @@ abstract final class BackupCatalog {
     ),
     BackupItemSpec(
       id: BackupItemId.accountCookies,
-      title: '账号与 Cookie',
-      subtitle: '各站点账号列表 + Cookie（可跨设备恢复登录）',
+      title: '账号列表',
+      subtitle: '各站点账号列表（UID / 昵称 / 头像），不含 Cookie',
+      icon: Icons.people_outline,
+      requires: [BackupItemId.siteSettings],
+      payloadKey: 'account_cookies',
+    ),
+    BackupItemSpec(
+      id: BackupItemId.cookies,
+      title: 'Cookie',
+      subtitle: '各站点登录凭据，可单独导出 / 导入（与上游格式一致）',
       icon: Icons.cookie_outlined,
       requires: [BackupItemId.siteSettings],
       sensitive: true,
-      payloadKey: 'account_cookies',
+      payloadKey: 'cookies',
     ),
   ];
 
@@ -222,6 +237,7 @@ abstract final class BackupCatalog {
     'browse_history_post',
     'mcp_config',
     'account_cookies',
+    'cookies',
   ];
 
   /// 按 [applyOrder] 排序；不在表内的键排在最后（保持传入顺序）
