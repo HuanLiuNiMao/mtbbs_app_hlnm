@@ -45,6 +45,62 @@ extension SettingsBackup on SettingsProvider {
   Future<void> setBackupSchedule(BackupSchedulePolicy schedule) =>
       setWebBackupConfig(_backup.web.copyWith(schedule: schedule));
 
+  // ==================== 本地自动备份 ====================
+
+  /// 整份本地备份配置（开关 / 保留份数 / 周期 / 上次结果）
+  ///
+  /// 与 Web 通道完全独立：本地不需要地址、不需要网络，关掉 Web 不影响本地。
+  /// 会顺带同步系统调度——周期或开关变了要重排，两条都关了要取消。
+  Future<void> setLocalBackupConfig(LocalBackupConfig config) async {
+    _backup = _backup.copyWith(local: config);
+    await BackupSettingsStore.instance.save(_backup);
+    _notify();
+    await BackupScheduler.instance.sync(_backup);
+  }
+
+  /// 本地自动备份总开关
+  Future<void> setLocalBackupEnabled(bool value) async {
+    if (_backup.local.enabled == value) return;
+    await setLocalBackupConfig(_backup.local.copyWith(enabled: value));
+  }
+
+  /// 本地备份定时策略
+  Future<void> setLocalBackupSchedule(BackupSchedulePolicy schedule) =>
+      setLocalBackupConfig(_backup.local.copyWith(schedule: schedule));
+
+  /// 本地备份保留份数（0 = 不清理）
+  Future<void> setLocalBackupKeepCount(int count) async {
+    final next = count.clamp(0, 100);
+    if (_backup.local.keepCount == next) return;
+    await setLocalBackupConfig(_backup.local.copyWith(keepCount: next));
+  }
+
+  /// 记录一次本地备份结果（lastRunAt / lastResult / lastFileName）
+  ///
+  /// 手动「立即备份」走主 isolate，结果直接回写内存 + 落库；
+  /// 后台定时那次由 `_writeLocalRunResult` 直接写库，主 isolate 下次 load 才看到。
+  Future<void> markLocalBackupRun({
+    required DateTime at,
+    required String result,
+    String fileName = '',
+  }) async {
+    final iso = at.toIso8601String();
+    final local = _backup.local;
+    _backup = _backup.copyWith(
+      local: local.copyWith(
+        lastRunAt: iso,
+        lastResult: result,
+        lastFileName: fileName.isEmpty ? local.lastFileName : fileName,
+        // 调度策略里也留一份：后台任务读的是 schedule.lastRunAt，
+        // UI 读的是 local.lastRunAt，两处都写才能保证「上次执行」处处可见。
+        schedule: local.schedule.copyWith(lastRunAt: iso, lastResult: result),
+      ),
+      lastBackupAt: result == 'ok' ? iso : _backup.lastBackupAt,
+    );
+    await BackupSettingsStore.instance.save(_backup);
+    _notify();
+  }
+
   /// 切换鉴权头值的存储方式。
   ///
   /// 两个方向都要搬值，否则用户会看到「切到加密后上传 401」或
