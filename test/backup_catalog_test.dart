@@ -94,6 +94,41 @@ void main() {
       expect(keys, ['site_settings', 'shortcuts', 'account_cookies']);
     });
 
+    test('账号与 Cookie 是两个独立项，可各自单独勾选', () {
+      // 从空集开始勾：只勾账号，不应把 Cookie 一起带上
+      // （否则「只搬账号不搬凭据」这个诉求做不到）
+      final onlyAccounts = const BackupSelection({})
+          .toggled(BackupItemId.accountCookies);
+      expect(onlyAccounts.contains(BackupItemId.accountCookies), isTrue);
+      expect(onlyAccounts.contains(BackupItemId.cookies), isFalse);
+      expect(
+        onlyAccounts.contains(BackupItemId.siteSettings),
+        isTrue,
+        reason: 'requires 会级联带上站点设置',
+      );
+
+      // 反过来：只勾 Cookie，不应把账号列表一起带上
+      final onlyCookies = const BackupSelection({})
+          .toggled(BackupItemId.cookies);
+      expect(onlyCookies.contains(BackupItemId.cookies), isTrue);
+      expect(onlyCookies.contains(BackupItemId.accountCookies), isFalse);
+      // 同样要带站点设置（否则没有 host → baseUrl 可查）
+      expect(onlyCookies.contains(BackupItemId.siteSettings), isTrue);
+    });
+
+    test('Cookie 项是敏感的，账号列表不是', () {
+      expect(BackupCatalog.byId(BackupItemId.cookies).sensitive, isTrue);
+      expect(BackupCatalog.byId(BackupItemId.accountCookies).sensitive, isFalse);
+    });
+
+    test('cookies 排在 account_cookies 之后（导入顺序）', () {
+      final order = BackupCatalog.applyOrder;
+      expect(
+        order.indexOf('account_cookies') < order.indexOf('cookies'),
+        isTrue,
+      );
+    });
+
     test('反选 = 补集', () {
       final all = BackupSelection(const {}).all;
       expect(all.count, BackupCatalog.leaves.length);
@@ -165,6 +200,64 @@ void main() {
       expect(cfg.scheduled, isTrue);
       expect(cfg.intervalMinutes, 90);
     });
+    test('isDueAt：关闭时永不到期', () {
+      const off = BackupSchedulePolicy();
+      expect(off.isDueAt(DateTime(2026, 11, 8)), isFalse);
+    });
+
+    test('isDueAt：从未跑过立刻到期', () {
+      const fresh = BackupSchedulePolicy(
+        interval: 1,
+        unit: BackupIntervalUnit.days,
+      );
+      expect(fresh.isDueAt(DateTime(2026, 11, 8)), isTrue);
+    });
+
+    test('isDueAt：未满一个周期不到期，满了才到期', () {
+      final now = DateTime(2026, 11, 8, 12, 0);
+      final schedule = BackupSchedulePolicy(
+        interval: 1,
+        unit: BackupIntervalUnit.days,
+        lastRunAt: now.subtract(const Duration(hours: 23)).toIso8601String(),
+      );
+      expect(schedule.isDueAt(now), isFalse, reason: '差 1 小时未满一天');
+      expect(
+        schedule.copyWith(
+          lastRunAt: now.subtract(const Duration(hours: 24)).toIso8601String(),
+        ).isDueAt(now),
+        isTrue,
+      );
+    });
+
+    test('isDueAt：容忍 1 分钟抖动（59 分钟也算到期）', () {
+      final now = DateTime(2026, 11, 8, 12, 0);
+      final schedule = BackupSchedulePolicy(
+        interval: 1,
+        unit: BackupIntervalUnit.hours,
+        lastRunAt: now.subtract(const Duration(minutes: 59)).toIso8601String(),
+      );
+      expect(
+        schedule.isDueAt(now),
+        isTrue,
+        reason: '严格比较会让差 59 秒那次整体跳过一整轮',
+      );
+    });
+
+    test('isDueAt：失败也算「跑过」（避免重试风暴）', () {
+      final now = DateTime(2026, 11, 8, 12, 0);
+      final schedule = BackupSchedulePolicy(
+        interval: 1,
+        unit: BackupIntervalUnit.hours,
+        lastRunAt: now.subtract(const Duration(minutes: 10)).toIso8601String(),
+        lastResult: 'failed: timeout',
+      );
+      expect(
+        schedule.isDueAt(now),
+        isFalse,
+        reason: '上次失败但未到周期，不该立刻重试',
+      );
+    });
+
     test('schedule 单位换算 / 0 表示关闭', () {
       const off = BackupSchedulePolicy();
       expect(off.enabled, isFalse);
@@ -177,6 +270,77 @@ void main() {
       expect(weekly.enabled, isTrue);
       expect(weekly.label, '1 周');
     });
+    test('LocalBackupConfig 空文档回落默认（关闭 / 保留 5 份）', () {
+      final c = LocalBackupConfig.fromMap(null);
+      expect(c.enabled, isFalse);
+      expect(c.keepCount, 5);
+      expect(c.scheduled, isFalse);
+      expect(c.lastFileName, '');
+    });
+
+    test('LocalBackupConfig.scheduled 需要开关与周期同时有效', () {
+      const on = LocalBackupConfig(enabled: true);
+      expect(on.scheduled, isFalse, reason: '只开开关、周期为 0 不算定时');
+      final withSchedule = on.copyWith(
+        schedule: const BackupSchedulePolicy(
+          interval: 1,
+          unit: BackupIntervalUnit.days,
+        ),
+      );
+      expect(withSchedule.scheduled, isTrue);
+      expect(
+        withSchedule.copyWith(enabled: false).scheduled,
+        isFalse,
+        reason: '关掉开关后即便周期还在也不该跑',
+      );
+    });
+
+    test('effectiveKeepCount 钳到 1..100，0 表示不清理', () {
+      const base = LocalBackupConfig();
+      expect(base.copyWith(keepCount: 0).effectiveKeepCount, 0);
+      expect(base.copyWith(keepCount: -3).effectiveKeepCount, 0);
+      expect(base.copyWith(keepCount: 5).effectiveKeepCount, 5);
+      expect(base.copyWith(keepCount: 999).effectiveKeepCount, 100);
+    });
+
+    test('本地配置 toMap / fromMap 往返一致', () {
+      const src = LocalBackupConfig(
+        enabled: true,
+        keepCount: 3,
+        schedule: BackupSchedulePolicy(
+          interval: 12,
+          unit: BackupIntervalUnit.hours,
+          requireCharging: true,
+        ),
+        lastRunAt: '2026-11-08T01:02:03.000',
+        lastResult: 'ok',
+        lastFileName: 'mtbbs_auto_20261108_010203.json',
+      );
+      final back = LocalBackupConfig.fromMap(src.toMap());
+      expect(back.enabled, isTrue);
+      expect(back.keepCount, 3);
+      expect(back.schedule.intervalMinutes, 12 * 60);
+      expect(back.schedule.requireCharging, isTrue);
+      expect(back.lastFileName, src.lastFileName);
+    });
+
+    test('BackupSettings 缺 local 键时回默认（旧文档兼容）', () {
+      final s = BackupSettings.fromMap({'webEnabled': true});
+      expect(s.local.enabled, isFalse);
+      expect(s.local.keepCount, 5);
+    });
+
+    test('BackupSettings 带 local 的往返一致', () {
+      const src = BackupSettings(
+        selected: {BackupItemId.cookies},
+        local: LocalBackupConfig(enabled: true, keepCount: 8),
+      );
+      final back = BackupSettings.fromMap(src.toMap());
+      expect(back.local.enabled, isTrue);
+      expect(back.local.keepCount, 8);
+      expect(back.selected, src.selected);
+    });
+
     test('加密模式下 headerValue 不写进设置文档', () {
       const cfg = WebBackupConfig(
         headerName: 'Authorization',
