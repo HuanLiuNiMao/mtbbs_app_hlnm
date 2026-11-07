@@ -67,6 +67,47 @@ class CommentFilterSettingsPage extends StatelessWidget {
                       : '${f.keywords.length} 条：${f.keywords.join('、')}',
                   onTap: () => _editKeywords(context, s, f),
                 ),
+                // 命中后占位提示开关
+                //
+                // 「消息 → 我的帖子」列表里，命中屏蔽词的回帖原本会画一整行
+                // 「回帖内容已屏蔽」的提示，在卡片中视觉上就是一个占满宽度的
+                // 大框。内容既然已被主动屏蔽，再占一块面积提醒「这里本来有
+                // 东西」纯属噪音，因此默认关闭（直接收起、不留痕迹）。
+                // 想要保留这层提示的用户可在此打开。
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '命中后保留提示',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              f.showBlockedPlaceholder
+                                  ? '当前：屏蔽后在「消息 → 我的帖子」留一行浅色提示'
+                                  : '当前：屏蔽后直接收起，不占位置（默认）',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: f.showBlockedPlaceholder,
+                        onChanged: (v) => s.setCommentFilter(
+                          f.copyWith(showBlockedPlaceholder: v),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

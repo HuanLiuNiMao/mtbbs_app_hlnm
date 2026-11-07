@@ -103,4 +103,61 @@ void main() {
       expect(next.boards, ['水区']);
     });
   });
+
+  group('CommentFilterConfig — 命中占位提示开关', () {
+    test('默认不留占位（showBlockedPlaceholder = false）', () {
+      expect(const CommentFilterConfig().showBlockedPlaceholder, isFalse);
+    });
+
+    test('copyWith 可以把开关打开，且不影响其它字段', () {
+      const base = CommentFilterConfig(keywords: ['广告'], boards: ['水区']);
+      final next = base.copyWith(showBlockedPlaceholder: true);
+      expect(next.showBlockedPlaceholder, isTrue);
+      expect(next.keywords, ['广告']);
+      expect(next.boards, ['水区']);
+      expect(next.enabled, isTrue);
+    });
+
+    test('copyWith 不传该参数时保持原值', () {
+      const on = CommentFilterConfig(showBlockedPlaceholder: true);
+      expect(on.copyWith(keywords: const ['x']).showBlockedPlaceholder, isTrue);
+      const off = CommentFilterConfig();
+      expect(
+        off.copyWith(keywords: const ['x']).showBlockedPlaceholder,
+        isFalse,
+      );
+    });
+
+    test('toJson / fromJson 往返保留取值', () {
+      for (final v in [true, false]) {
+        final cfg = CommentFilterConfig(
+          keywords: const ['广告'],
+          showBlockedPlaceholder: v,
+        );
+        final back = CommentFilterConfig.fromJson(cfg.toJson());
+        expect(back.showBlockedPlaceholder, v);
+        expect(back.keywords, ['广告']);
+      }
+    });
+
+    test('旧配置（JSON 里没有该键）按 false 解析', () {
+      final back = CommentFilterConfig.fromJson(const {
+        'enabled': true,
+        'keywords': ['广告'],
+      });
+      expect(back.showBlockedPlaceholder, isFalse);
+    });
+
+    test('withoutTrigger() 不清掉占位开关（它是显示层字段）', () {
+      const cfg = CommentFilterConfig(
+        onlyHiddenThread: true,
+        boards: ['水区'],
+        showBlockedPlaceholder: true,
+      );
+      final stripped = cfg.withoutTrigger();
+      expect(stripped.onlyHiddenThread, isFalse);
+      expect(stripped.boards, isEmpty);
+      expect(stripped.showBlockedPlaceholder, isTrue);
+    });
+  });
 }

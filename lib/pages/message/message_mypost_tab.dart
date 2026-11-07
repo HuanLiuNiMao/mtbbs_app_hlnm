@@ -198,35 +198,50 @@ class _MypostTabState extends State<MypostTab>
                   ),
                 ),
               )
-            else if (preview != null && preview.bbcode.isNotEmpty)
+            // 命中评论屏蔽词时**默认什么都不渲染**（不留占位框）。
+            //
+            // 早期这里画一整行「回帖内容已屏蔽（命中评论屏蔽词）」，在卡片里
+            // 视觉上就是一个突兀的大框——既然内容已经被主动屏蔽，再占一块
+            // 面积提醒「这里本来有东西」纯属噪音。想要这层提示的用户可以在
+            // 「设置 → 评论屏蔽 → 命中后保留提示」打开。
+            //
+            // 注意：屏蔽只隐藏回帖正文，下面的「查看 / 回复」按钮行照常渲染，
+            // 用户仍可点进帖子按完整上下文查看。
+            if (!previewBlocked &&
+                preview != null &&
+                preview.bbcode.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: previewBlocked
-                    // 命中评论屏蔽词：只隐藏回帖正文，保留「查看 / 回复」入口，
-                    // 用户仍可点进帖子按完整上下文查看
-                    ? Row(
-                        children: [
-                          Icon(
-                            Icons.visibility_off_outlined,
-                            size: 14,
-                            color: cs.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '回帖内容已屏蔽（命中评论屏蔽词）',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurfaceVariant,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                      )
-                    : PostHtmlWidget(
-                        bbcode: preview.bbcode,
-                        disabledTags: const {},
-                        autoDetectUrls: settings.autoDetectUrls,
+                child: PostHtmlWidget(
+                  bbcode: preview.bbcode,
+                  disabledTags: const {},
+                  autoDetectUrls: settings.autoDetectUrls,
+                ),
+              )
+            else if (previewBlocked &&
+                commentCfg.showBlockedPlaceholder &&
+                preview != null &&
+                preview.bbcode.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.visibility_off_outlined,
+                      size: 14,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '回帖内容已屏蔽（命中评论屏蔽词）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurfaceVariant,
+                        fontStyle: FontStyle.italic,
                       ),
+                    ),
+                  ],
+                ),
               ),
             // 操作按钮行
             Row(

@@ -228,12 +228,22 @@ class CommentFilterConfig {
   /// 屏蔽词（每行一条，支持正则；空 = 不屏蔽任何评论）
   final List<String> keywords;
 
+  /// 命中屏蔽后是否在「消息 → 我的帖子」的回帖预览处保留一条提示占位。
+  ///
+  /// 默认 **false**：那里原本会渲染一整行「回帖内容已屏蔽（命中评论屏蔽词）」，
+  /// 在卡片里视觉上就是一个突兀的大框，比直接不显示更打扰。想保留提示
+  /// （至少知道「这里本来有内容」）的用户可以在评论屏蔽设置里打开。
+  ///
+  /// 只影响这一处占位提示；帖子详情页的楼层屏蔽始终是整层隐藏、不留占位。
+  final bool showBlockedPlaceholder;
+
   const CommentFilterConfig({
     this.enabled = true,
     this.onlyHiddenThread = false,
     this.modeBlock = true,
     this.boards = const [],
     this.keywords = const [],
+    this.showBlockedPlaceholder = false,
   });
 
   /// 两种触发方式都没设置（此时屏蔽词全局生效，与旧行为一致）
@@ -257,12 +267,15 @@ class CommentFilterConfig {
     bool? modeBlock,
     List<String>? boards,
     List<String>? keywords,
+    bool? showBlockedPlaceholder,
   }) => CommentFilterConfig(
     enabled: enabled ?? this.enabled,
     onlyHiddenThread: onlyHiddenThread ?? this.onlyHiddenThread,
     modeBlock: modeBlock ?? this.modeBlock,
     boards: boards ?? this.boards,
     keywords: keywords ?? this.keywords,
+    showBlockedPlaceholder:
+        showBlockedPlaceholder ?? this.showBlockedPlaceholder,
   );
 
   Map<String, dynamic> toJson() => {
@@ -271,6 +284,7 @@ class CommentFilterConfig {
     'modeBlock': modeBlock,
     'boards': boards,
     'keywords': keywords,
+    'showBlockedPlaceholder': showBlockedPlaceholder,
   };
 
   factory CommentFilterConfig.fromJson(Map<String, dynamic> j) =>
@@ -284,6 +298,8 @@ class CommentFilterConfig {
         keywords: ((j['keywords'] as List<dynamic>?) ?? const [])
             .map((e) => e.toString())
             .toList(),
+        showBlockedPlaceholder:
+            (j['showBlockedPlaceholder'] as bool?) ?? false,
       );
 }
 
