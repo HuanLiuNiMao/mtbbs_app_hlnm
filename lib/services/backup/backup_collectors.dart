@@ -113,6 +113,11 @@ const List<BackupItemHandler> backupCollectors = [
     collect: _collectAccountCookies,
     apply: _applyAccountCookies,
   ),
+  BackupItemHandler(
+    key: 'cookies',
+    collect: _collectCookies,
+    apply: _applyCookies,
+  ),
 ];
 
 // ==================== 应用设置 ====================
@@ -692,9 +697,28 @@ Future<BackupApplyResult> _applyMcpConfig(
 
 // ==================== 账号与 Cookie ====================
 
+/// 账号列表：只搬「谁登录过」，**不含 Cookie**。
+///
+/// 与 [cookies] 分开的动机见 `BackupItemId.cookies` 的注释。
+/// 复用 `exportCookiesJson` 的产物再剥掉 `cookies` 字段，
+/// 保证「账号」与「Cookie」两边的站点/账号口径永远一致 ——
+/// 各写一套遍历逻辑早晚会因为过滤条件不同而错位。
 Future<Map<String, dynamic>> _collectAccountCookies(BackupContext ctx) async {
-  final text = await DataPortability.exportCookiesJson();
-  return (jsonDecode(text) as Map).cast<String, dynamic>();
+  final doc = (jsonDecode(await DataPortability.exportCookiesJson()) as Map)
+      .cast<String, dynamic>();
+  final sites = doc['sites'];
+  if (sites is List) {
+    doc['sites'] = [
+      for (final raw in sites)
+        if (raw is Map)
+          {
+            'host': raw['host'],
+            'baseUrl': raw['baseUrl'],
+            'accounts': raw['accounts'],
+          },
+    ];
+  }
+  return doc;
 }
 
 Future<BackupApplyResult> _applyAccountCookies(
@@ -702,11 +726,47 @@ Future<BackupApplyResult> _applyAccountCookies(
   Map<String, dynamic> payload,
   BackupApplyMode mode,
 ) async {
-  // 复用既有导入实现（格式即 `mtbbs.cookies`，v1 老文件同样适用）。
-  // 账号按 uid 去重合并；Cookie 按账号覆盖。
+  // payload 里没有 `cookies` 键，导入器会跳过 Cookie 段，只合并账号列表。
   final result = await DataPortability.importCookiesJson(jsonEncode(payload));
   return BackupApplyResult(
     key: 'account_cookies',
+    applied: result.accounts,
+    skipped: 0,
+    needsReload: result.hosts.isNotEmpty,
+  );
+}
+
+/// Cookie：只搬登录凭据，**不含账号列表**。
+///
+/// 产物格式与上游「导出账号 Cookie」完全一致（`mtbbs.cookies` v1），
+/// 因此这份 JSON 可以直接喂给上游 App，反之亦然。
+Future<Map<String, dynamic>> _collectCookies(BackupContext ctx) async {
+  final doc = (jsonDecode(await DataPortability.exportCookiesJson()) as Map)
+      .cast<String, dynamic>();
+  final sites = doc['sites'];
+  if (sites is List) {
+    doc['sites'] = [
+      for (final raw in sites)
+        if (raw is Map)
+          {
+            'host': raw['host'],
+            'baseUrl': raw['baseUrl'],
+            'cookies': raw['cookies'],
+          },
+    ];
+  }
+  return doc;
+}
+
+Future<BackupApplyResult> _applyCookies(
+  BackupContext ctx,
+  Map<String, dynamic> payload,
+  BackupApplyMode mode,
+) async {
+  // 没有 `accounts` 键 → 导入器不动账号列表，只覆盖 Cookie 罐。
+  final result = await DataPortability.importCookiesJson(jsonEncode(payload));
+  return BackupApplyResult(
+    key: 'cookies',
     applied: result.jars,
     skipped: 0,
     needsReload: result.hosts.isNotEmpty,
