@@ -13,7 +13,24 @@ enum UpdateChannel {
   beta,
 
   /// 调试包（手动检查仅用于排查）
-  debug,
+  debug;
+
+  /// 设置页显示名
+  String get label => switch (this) {
+    UpdateChannel.release => '稳定版',
+    UpdateChannel.beta => '测试版',
+    UpdateChannel.debug => '调试版',
+  };
+
+  /// 一句话说明（设置页副标题用）
+  String get description => switch (this) {
+    UpdateChannel.release => '正式发布，收到稳定更新',
+    UpdateChannel.beta => '预发布包，版本更新但可能不稳定',
+    UpdateChannel.debug => '本地调试包，仅供排查',
+  };
+
+  /// 是否接受 GitHub 的 pre-release 标记
+  bool get includePrerelease => this != UpdateChannel.release;
 }
 
 /// 更新产物所处的平台。判定见 `UpdateService.currentPlatform`。
@@ -87,17 +104,42 @@ class UpdatePolicy {
 class UpdateConfig {
   const UpdateConfig({
     required this.source,
-    required this.channel,
+    required this.buildChannel,
+    UpdateChannel? channel,
     this.policies = defaultPolicies,
     this.assetRules = defaultAssetRules,
-  });
+  }) : _channelOverride = channel;
 
   final UpdateSource source;
-  final UpdateChannel channel;
+
+  /// 构建期注入的渠道 —— 本包「是什么」，不可在运行时改变。
+  final UpdateChannel buildChannel;
+
+  /// 用户覆盖的渠道；null = 跟随 [buildChannel]。
+  final UpdateChannel? _channelOverride;
+
+  /// 生效渠道：用户选择优先，否则跟随构建。
+  UpdateChannel get channel => _channelOverride ?? buildChannel;
+
+  /// 是否被用户覆盖过（设置页显示「跟随构建」时用）。
+  bool get isChannelOverridden => _channelOverride != null;
+
   final Map<UpdateChannel, UpdatePolicy> policies;
   final Map<UpdatePlatform, List<AssetRule>> assetRules;
 
   UpdatePolicy get policy => policies[channel] ?? defaultPolicies[channel]!;
+
+  /// 复制一份并替换生效渠道；[override] 为 null 表示恢复「跟随构建」。
+  ///
+  /// 用 copy 而不是重新 [fromBuildConfig]：前者保留 source / policies，
+  /// 也避免用户切换渠道时丢掉构建期信息。
+  UpdateConfig withChannel(UpdateChannel? override) => UpdateConfig(
+    source: source,
+    buildChannel: buildChannel,
+    channel: override,
+    policies: policies,
+    assetRules: assetRules,
+  );
 
   List<AssetRule> rulesFor(UpdatePlatform platform) =>
       assetRules[platform] ?? const [];
@@ -109,7 +151,7 @@ class UpdateConfig {
     if (parts.length != 2 || parts[0].isEmpty || parts[1].isEmpty) return null;
     return UpdateConfig(
       source: UpdateSource(owner: parts[0], name: parts[1]),
-      channel: parseChannel(BuildConfig.updateChannel) ?? defaultChannel(),
+      buildChannel: parseChannel(BuildConfig.updateChannel) ?? defaultChannel(),
     );
   }
 
