@@ -5,6 +5,8 @@ import 'package:mtbbs/pages/settings/models/settings_model.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/services/update_service.dart';
 import 'package:mtbbs/widgets/dialog/update_dialog.dart';
+import 'package:mtbbs/config/update_config.dart';
+import 'package:mtbbs/pages/settings/update_channel_dialog.dart';
 
 /// 关于入口 — 单独一行，不参与分组（「通用错峰间隔」已归入站点与网络组）
 List<SettingsModel> aboutSettings() => [
@@ -25,7 +27,17 @@ List<SettingsModel> aboutSettings() => [
 List<SettingsModel> aboutPageSettings() {
   final service = UpdateService.instance;
   if (!service.isConfigured) return const [];
+  // 渠道展示名：用户覆盖优先，否则跟随构建
+  final channel = service.channel;
   return [
+    // 渠道是「查什么」的开关，放在最前：它决定下面两项是否可用
+    if (channel != null)
+      NormalSetting(
+        title: '更新渠道',
+        subtitle: _channelSubtitle(service, channel),
+        icon: Icons.alt_route,
+        onTap: (ctx, s) => UpdateChannelDialog.show(ctx, s),
+      ),
     // 自动检查由渠道策略决定（beta / debug 默认关闭）
     if (service.autoCheckEnabled)
       SwitchSetting(
@@ -57,4 +69,14 @@ List<SettingsModel> aboutPageSettings() {
         onTap: (ctx, s) => checkForUpdate(ctx, isAuto: false, settings: s),
       ),
   ];
+}
+
+/// 渠道副标题：说明当前生效渠道，以及是否被用户改过
+String _channelSubtitle(UpdateService service, UpdateChannel channel) {
+  final build = service.buildChannel;
+  final base = '${channel.label} · ${channel.description}';
+  // 未注入更新源 / 未覆盖：只显示生效渠道
+  if (build == null || build == channel) return base;
+  // 覆盖过：把「安装包本身是什么」也说清楚，避免用户误以为包变了
+  return '$base（安装包为${build.label}）';
 }
