@@ -14,6 +14,7 @@ class ReleaseAsset {
   const ReleaseAsset({required this.name, required this.downloadUrl});
 
   final String name;
+
   final String downloadUrl;
 }
 
@@ -80,7 +81,35 @@ class UpdateService {
   static final UpdateService instance = UpdateService._();
 
   /// 构建期注入的更新配置；null = 未注入更新源（不检查更新）。
-  final UpdateConfig? config = UpdateConfig.fromBuildConfig();
+  ///
+  /// 这是**不可变**的构建期事实，用户切换渠道不会改它。
+  final UpdateConfig? _buildConfig = UpdateConfig.fromBuildConfig();
+
+  /// 用户选择的渠道覆盖；null = 跟随构建。
+  ///
+  /// 内存态：真实来源是 `AdvancedSettings.updateChannel`，由设置层在
+  /// 启动载入与用户修改时调用 [applyChannelOverride] 同步进来。
+  UpdateChannel? _channelOverride;
+
+  /// 生效的更新配置（已叠加用户渠道覆盖）；null = 未配置更新源。
+  UpdateConfig? get config => _buildConfig?.withChannel(_channelOverride);
+
+  /// 构建期渠道（本包「是什么」）；未配置更新源时为 null。
+  UpdateChannel? get buildChannel => _buildConfig?.buildChannel;
+
+  /// 当前生效渠道（用户选择优先）；未配置更新源时为 null。
+  UpdateChannel? get channel => config?.channel;
+
+  /// 同步用户选择的渠道；传 null 表示恢复「跟随构建」。
+  ///
+  /// 只改内存态，不触发落盘——持久化由设置层负责，服务层不碰存储。
+  void applyChannelOverride(UpdateChannel? channel) {
+    if (_channelOverride == channel) return;
+    _channelOverride = channel;
+    // 换了渠道，之前缓存的「最新版本」属于旧渠道，必须清掉，
+    // 否则关于页会拿 beta 的版本号去和 release 包比较。
+    latestRelease.value = null;
+  }
 
   /// 最近一次成功检测到的最新发布（供关于页展示「最新版本」）。
   ///
