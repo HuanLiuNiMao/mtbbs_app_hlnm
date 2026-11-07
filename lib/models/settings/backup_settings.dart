@@ -19,6 +19,9 @@ class BackupSettings {
   /// 用户自备服务器配置（本应用不提供任何托管服务）
   final WebBackupConfig web;
 
+  /// 本地自动备份配置（写到应用私有目录，不上网）
+  final LocalBackupConfig local;
+
   /// 运行日志保留天数（0 = 不保留）
   final int logKeepDays;
 
@@ -29,6 +32,7 @@ class BackupSettings {
     required this.selected,
     this.webEnabled = false,
     this.web = const WebBackupConfig(),
+    this.local = const LocalBackupConfig(),
     this.logKeepDays = 30,
     this.lastBackupAt = '',
   });
@@ -49,6 +53,9 @@ class BackupSettings {
       web: WebBackupConfig.fromMap(
         (map['web'] as Map?)?.cast<String, dynamic>(),
       ),
+      local: LocalBackupConfig.fromMap(
+        (map['local'] as Map?)?.cast<String, dynamic>(),
+      ),
       logKeepDays: (map['logKeepDays'] as num?)?.toInt() ?? d.logKeepDays,
       lastBackupAt: map['lastBackupAt']?.toString() ?? d.lastBackupAt,
     );
@@ -58,6 +65,7 @@ class BackupSettings {
     'selected': {for (final id in selected) id.name}.toList(),
     'webEnabled': webEnabled,
     'web': web.toMap(),
+    'local': local.toMap(),
     'logKeepDays': logKeepDays,
     'lastBackupAt': lastBackupAt,
   };
@@ -69,12 +77,14 @@ class BackupSettings {
     Set<BackupItemId>? selected,
     bool? webEnabled,
     WebBackupConfig? web,
+    LocalBackupConfig? local,
     int? logKeepDays,
     String? lastBackupAt,
   }) => BackupSettings(
     selected: selected ?? this.selected,
     webEnabled: webEnabled ?? this.webEnabled,
     web: web ?? this.web,
+    local: local ?? this.local,
     logKeepDays: logKeepDays ?? this.logKeepDays,
     lastBackupAt: lastBackupAt ?? this.lastBackupAt,
   );
@@ -146,6 +156,21 @@ class BackupSchedulePolicy {
 
   /// 人类可读间隔，如「1 周」「6 小时」
   String get label => enabled ? '$interval ${unit.label}' : '关闭';
+
+  /// 到 [now] 为止，是否已够一个周期（该跑一次了）。
+  ///
+  /// 判定依据是 [lastRunAt]——成功和失败都会写这个字段，
+  /// 所以语义是「距上次**尝试**是否够一个周期」，而不是「距上次成功」。
+  /// 这点很重要：服务器挂掉时若只看成功，每次唤醒都会重试，变成重试风暴。
+  ///
+  /// 容忍 1 分钟偏差：WorkManager 的唤醒时刻有几十秒抖动，若严格比较，
+  /// 正好差 59 秒那次会被判「未到期」而整体跳过一整轮。
+  bool isDueAt(DateTime now) {
+    if (!enabled) return false;
+    final last = DateTime.tryParse(lastRunAt);
+    if (last == null) return true; // 从未跑过：立刻可跑
+    return now.difference(last).inMinutes >= intervalMinutes - 1;
+  }
 
   /// WorkManager 的周期下限是 15 分钟；更小的值会被系统自动抬到 15。
   ///
@@ -323,5 +348,90 @@ class WebBackupConfig {
     schedule: schedule ?? this.schedule,
     lastRunAt: lastRunAt ?? this.lastRunAt,
     lastResult: lastResult ?? this.lastResult,
+  );
+}
+
+/// 本地自动备份配置。
+///
+/// 与 [WebBackupConfig] 是**两条独立通道**，各自有开关与周期：
+/// 用户可能只想要「本机留几份、断网也能恢复」，并不想架服务器；
+/// 也可能只上传、不在本机堆文件。合并成一个开关会逼他二选一。
+///
+/// 落地位置固定在应用私有目录 `{appDataDir}/backups/`（见
+/// `AppPaths.backupsDir`），不申请存储权限、不弹 SAF 选择器 ——
+/// 后台任务跑在 WorkManager 的独立 isolate 里，那里**没有 Activity**，
+/// 任何需要 UI 的文件选择器都不可用。
+class LocalBackupConfig {
+  /// 是否启用本地自动备份
+  final bool enabled;
+
+  /// 保留份数（超出后删最旧的）；<= 0 表示不清理
+  final int keepCount;
+
+  /// 定时策略（复用 Web 那套「数值 + 单位」）
+  final BackupSchedulePolicy schedule;
+
+  /// 上次本地备份时间（ISO8601，'' = 从未）
+  final String lastRunAt;
+
+  /// 上次本地备份结果简述（'ok' / 'failed: ...'）
+  final String lastResult;
+
+  /// 上次写入的文件名（便于 UI 显示「上次落在哪」）
+  final String lastFileName;
+
+  const LocalBackupConfig({
+    this.enabled = false,
+    this.keepCount = 5,
+    this.schedule = const BackupSchedulePolicy(),
+    this.lastRunAt = '',
+    this.lastResult = '',
+    this.lastFileName = '',
+  });
+
+  /// 定时是否开启（开关开着 **且** 周期有效）
+  bool get scheduled => enabled && schedule.enabled;
+
+  /// 实际生效的保留份数（钳到 1..100，0 视为不清理）
+  int get effectiveKeepCount => keepCount <= 0 ? 0 : keepCount.clamp(1, 100);
+
+  Map<String, dynamic> toMap() => {
+    'enabled': enabled,
+    'keepCount': keepCount,
+    'schedule': schedule.toMap(),
+    'lastRunAt': lastRunAt,
+    'lastResult': lastResult,
+    'lastFileName': lastFileName,
+  };
+
+  factory LocalBackupConfig.fromMap(Map<String, dynamic>? map) {
+    if (map == null || map.isEmpty) return const LocalBackupConfig();
+    const d = LocalBackupConfig();
+    return LocalBackupConfig(
+      enabled: map['enabled'] as bool? ?? d.enabled,
+      keepCount: (map['keepCount'] as num?)?.toInt() ?? d.keepCount,
+      schedule: BackupSchedulePolicy.fromMap(
+        (map['schedule'] as Map?)?.cast<String, dynamic>(),
+      ),
+      lastRunAt: map['lastRunAt']?.toString() ?? d.lastRunAt,
+      lastResult: map['lastResult']?.toString() ?? d.lastResult,
+      lastFileName: map['lastFileName']?.toString() ?? d.lastFileName,
+    );
+  }
+
+  LocalBackupConfig copyWith({
+    bool? enabled,
+    int? keepCount,
+    BackupSchedulePolicy? schedule,
+    String? lastRunAt,
+    String? lastResult,
+    String? lastFileName,
+  }) => LocalBackupConfig(
+    enabled: enabled ?? this.enabled,
+    keepCount: keepCount ?? this.keepCount,
+    schedule: schedule ?? this.schedule,
+    lastRunAt: lastRunAt ?? this.lastRunAt,
+    lastResult: lastResult ?? this.lastResult,
+    lastFileName: lastFileName ?? this.lastFileName,
   );
 }
