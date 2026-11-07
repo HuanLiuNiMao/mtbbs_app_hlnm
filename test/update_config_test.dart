@@ -226,4 +226,76 @@ void main() {
       expect(UpdateConfig.parseChannel(''), isNull);
     });
   });
+  group('更新渠道', () {
+    const source = UpdateSource(owner: 'owner', name: 'repo');
+
+    UpdateConfig cfg({UpdateChannel build = UpdateChannel.release}) =>
+        UpdateConfig(source: source, buildChannel: build);
+
+    test('展示名与说明齐全', () {
+      expect(UpdateChannel.release.label, '稳定版');
+      expect(UpdateChannel.beta.label, '测试版');
+      expect(UpdateChannel.debug.label, '调试版');
+      for (final c in UpdateChannel.values) {
+        expect(c.description, isNotEmpty);
+      }
+    });
+
+    test('只有稳定版拒绝 prerelease', () {
+      expect(UpdateChannel.release.includePrerelease, isFalse);
+      expect(UpdateChannel.beta.includePrerelease, isTrue);
+      expect(UpdateChannel.debug.includePrerelease, isTrue);
+    });
+
+    test('默认跟随构建渠道', () {
+      final c = cfg(build: UpdateChannel.beta);
+      expect(c.channel, UpdateChannel.beta);
+      expect(c.buildChannel, UpdateChannel.beta);
+      expect(c.isChannelOverridden, isFalse);
+    });
+
+    test('用户覆盖优先于构建渠道', () {
+      final c = cfg(build: UpdateChannel.release).withChannel(
+        UpdateChannel.beta,
+      );
+      expect(c.channel, UpdateChannel.beta);
+      // 构建渠道是「本包是什么」，不能被覆盖改掉
+      expect(c.buildChannel, UpdateChannel.release);
+      expect(c.isChannelOverridden, isTrue);
+    });
+
+    test('withChannel(null) 恢复跟随构建', () {
+      final overridden = cfg().withChannel(UpdateChannel.debug);
+      expect(overridden.channel, UpdateChannel.debug);
+      final restored = overridden.withChannel(null);
+      expect(restored.channel, UpdateChannel.release);
+      expect(restored.isChannelOverridden, isFalse);
+    });
+
+    test('策略随生效渠道变化', () {
+      final release = cfg(build: UpdateChannel.release);
+      expect(release.policy.autoCheck, isTrue);
+      expect(release.policy.canDownload, isTrue);
+
+      final asBeta = release.withChannel(UpdateChannel.beta);
+      expect(asBeta.policy.autoCheck, isFalse);
+      expect(asBeta.policy.canDownload, isFalse);
+      expect(asBeta.policy.includePrerelease, isTrue);
+    });
+
+    test('withChannel 保留更新源', () {
+      final c = cfg().withChannel(UpdateChannel.beta);
+      expect(c.source.owner, 'owner');
+      expect(c.source.name, 'repo');
+      expect(c.source.releasesApiUrl, contains('owner/repo'));
+    });
+
+    test('parseChannel 对未知值返回 null', () {
+      expect(UpdateConfig.parseChannel('release'), UpdateChannel.release);
+      expect(UpdateConfig.parseChannel('  BETA '), UpdateChannel.beta);
+      expect(UpdateConfig.parseChannel('debug'), UpdateChannel.debug);
+      expect(UpdateConfig.parseChannel(''), isNull);
+      expect(UpdateConfig.parseChannel('nightly'), isNull);
+    });
+  });
 }
