@@ -46,6 +46,9 @@ enum ToolbarAction {
   history,
   editHistory,
   mdImport,
+
+  /// 自定义格式：弹出用户自定义的格式列表，点选后套用到选中文字
+  customFormat,
   mtImage,
   attach,
   quickReply,
@@ -243,6 +246,15 @@ const allToolbarItemConfigs = [
     id: 'mdImport',
     name: '导入MD',
     group: 'meta',
+  ),
+  // 自定义格式：一套用户自建的格式（可多套），点按弹列表选用
+  ToolbarItemConfig(
+    action: ToolbarAction.customFormat,
+    id: 'customFormat',
+    name: '自定义格式',
+    group: 'custom',
+    mini: ['thread', 'pm', 'wall'],
+    defaultVisible: true,
   ),
   ToolbarItemConfig(
     action: ToolbarAction.mtImage,

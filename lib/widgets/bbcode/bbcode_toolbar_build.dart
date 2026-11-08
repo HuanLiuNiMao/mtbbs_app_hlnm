@@ -168,6 +168,14 @@ extension _BBCodeToolbarBuild on BBCodeToolbar {
           name: item.name,
           cs: cs,
         );
+      case ToolbarAction.customFormat:
+        return _toolBtn(
+          icon: Icons.auto_fix_high,
+          tooltip: tooltip,
+          id: item.id,
+          name: item.name,
+          cs: cs,
+        );
       case ToolbarAction.mtImage:
         return _toolBtn(
           icon: Icons.cloud_upload_outlined,

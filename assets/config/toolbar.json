@@ -17,6 +17,7 @@
     { "id": "history",       "name": "历史",     "group": "history",     "shortcut": "",              "visible": true },
     { "id": "editHistory",   "name": "编辑历史", "group": "meta",        "shortcut": "",              "visible": true },
     { "id": "mdImport",      "name": "导入MD",   "group": "meta",        "shortcut": "",              "visible": true },
+    { "id": "customFormat",  "name": "自定义格式", "group": "custom",    "shortcut": "",              "visible": true,  "mini": ["thread", "pm", "wall"] },
     { "id": "mtImage",       "name": "MT图床",   "group": "mtImage",     "shortcut": "",              "visible": true,  "mini": ["thread", "pm", "wall"] },
     { "id": "attach",        "name": "附件",     "group": "attach",      "shortcut": "",              "visible": true },
     { "id": "italic",        "name": "斜体",     "group": "style",       "label": "I",    "template": "[i]${selectText}[/i]",                      "shortcut": "Ctrl+I",        "visible": true },

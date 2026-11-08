@@ -305,6 +305,12 @@ class EditorSettings {
   final bool toolbarShortcutWhenHidden;
   final List<ManagedItem> quickReplies;
   final List<ManagedItem> toolbarItems;
+
+  /// 用户自定义格式（编辑器工具栏「自定义格式」按钮弹出的一套格式）。
+  /// 每项 `data['template']` 含 `${selectText}` 占位符，与模板项同构；
+  /// 与工具栏项分开存，便于独立增删排序，也不受工具栏重置影响。
+  final List<ManagedItem> customFormats;
+
   final Map<String, String> shortcuts;
   final Map<String, String> toolbarShortcuts;
   final int minSnapshotWordCount;
@@ -317,6 +323,7 @@ class EditorSettings {
     required this.toolbarShortcutWhenHidden,
     required this.quickReplies,
     required this.toolbarItems,
+    required this.customFormats,
     required this.shortcuts,
     required this.toolbarShortcuts,
     required this.minSnapshotWordCount,
@@ -330,6 +337,7 @@ class EditorSettings {
     toolbarShortcutWhenHidden: true,
     quickReplies: defaultQuickReplies(),
     toolbarItems: const [],
+    customFormats: const [],
     shortcuts: Map.from(ShortcutHelper.defaults),
     toolbarShortcuts: defaultToolbarShortcuts(),
     minSnapshotWordCount: 10,
@@ -343,6 +351,7 @@ class EditorSettings {
     'toolbarShortcutWhenHidden': toolbarShortcutWhenHidden,
     'quickReplies': quickReplies.map((e) => e.toJson()).toList(),
     'toolbarItems': toolbarItems.map((e) => e.toJson()).toList(),
+    'customFormats': customFormats.map((e) => e.toJson()).toList(),
     'shortcuts': shortcuts,
     'toolbarShortcuts': toolbarShortcuts,
     'minSnapshotWordCount': minSnapshotWordCount,
@@ -377,6 +386,7 @@ class EditorSettings {
           d.toolbarShortcutWhenHidden,
       quickReplies: items('quickReplies', d.quickReplies),
       toolbarItems: items('toolbarItems', d.toolbarItems),
+      customFormats: items('customFormats', d.customFormats),
       shortcuts: strMap('shortcuts', d.shortcuts),
       toolbarShortcuts: strMap('toolbarShortcuts', d.toolbarShortcuts),
       minSnapshotWordCount:

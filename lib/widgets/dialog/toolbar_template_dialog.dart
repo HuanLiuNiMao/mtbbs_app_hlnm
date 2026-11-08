@@ -1,26 +1,33 @@
 import 'package:flutter/material.dart';
+
 import 'package:mtbbs/config/toolbar_config.dart';
 import 'package:mtbbs/models/managed_item.dart';
 
-/// 工具栏「模板项」编辑弹窗。
+/// 模板类条目的编辑弹窗（工具栏「模板项」与「自定义格式」共用）。
 ///
-/// 模板项 = 一段含 `${selectText}` 占位符的 BBCode 文本，用于包裹选中文字
-/// （无选中时占位符为空）。用户可新增自己的模板，也可修改内置模板。
+/// 模板 = 一段含 `${selectText}` 占位符的 BBCode 文本，用于包裹选中文字
+/// （无选中时占位符为空，光标落在标签之间）。
 ///
-/// 返回编辑后的 [ManagedItem]；取消返回 null。
+/// 两个语境只差文案：工具栏模板进工具栏，自定义格式只在「自定义格式」面板里列出。
 Future<ManagedItem?> showToolbarTemplateDialog(
   BuildContext context, {
   ManagedItem? initial,
+  bool isCustomFormat = false,
 }) {
   return showDialog<ManagedItem>(
     context: context,
-    builder: (_) => _ToolbarTemplateDialog(initial: initial),
+    builder: (_) => _ToolbarTemplateDialog(
+      initial: initial,
+      isCustomFormat: isCustomFormat,
+    ),
   );
 }
 
 class _ToolbarTemplateDialog extends StatefulWidget {
   final ManagedItem? initial;
-  const _ToolbarTemplateDialog({this.initial});
+  final bool isCustomFormat;
+
+  const _ToolbarTemplateDialog({this.initial, this.isCustomFormat = false});
 
   @override
   State<_ToolbarTemplateDialog> createState() => _ToolbarTemplateDialogState();
@@ -32,6 +39,7 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
   late final TextEditingController _templateCtl;
   String? _error;
 
+  bool get _isCustomFormat => widget.isCustomFormat;
   bool get _isCustom =>
       widget.initial == null || isCustomToolbarItem(widget.initial!);
   bool get _isEditing => widget.initial != null;
@@ -77,8 +85,9 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
       // 新增项统一归入 custom 分组；编辑项沿用原分组
       if (initial == null) 'group': 'custom',
     };
+    final prefix = widget.isCustomFormat ? 'format' : 'custom';
     final item = ManagedItem(
-      id: initial?.id ?? 'custom_${DateTime.now().millisecondsSinceEpoch}',
+      id: initial?.id ?? '${prefix}_${DateTime.now().millisecondsSinceEpoch}',
       name: name,
       visible: initial?.visible ?? true,
       data: data,
@@ -86,11 +95,16 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
     Navigator.of(context).pop(item);
   }
 
+  String get _title {
+    if (_isCustomFormat) return _isEditing ? '编辑自定义格式' : '新增自定义格式';
+    return _isEditing ? '编辑工具栏项' : '新增工具栏项';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return AlertDialog(
-      title: Text(_isEditing ? '编辑工具栏项' : '新增工具栏项'),
+      title: Text(_title),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: SingleChildScrollView(
@@ -101,20 +115,24 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
               TextField(
                 controller: _nameCtl,
                 enabled: _isCustom,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: '名称',
-                  helperText: '显示在 tooltip 与设置列表',
-                  border: OutlineInputBorder(),
+                  helperText: _isCustomFormat
+                      ? '显示在「自定义格式」面板与按钮 tooltip'
+                      : '显示在 tooltip 与设置列表',
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _labelCtl,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: '按钮文字',
-                  helperText: '工具栏按钮上显示的文字，如 H1；留空则用名称',
-                  border: OutlineInputBorder(),
+                  helperText: _isCustomFormat
+                      ? '格式条目的紧凑标签，可留空（留空则用名称）'
+                      : '工具栏按钮上显示的文字，如 H1；留空则用名称',
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
               ),

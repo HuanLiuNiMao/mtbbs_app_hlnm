@@ -6,6 +6,7 @@ import 'package:mtbbs/models/managed_item.dart';
 import 'package:mtbbs/pages/editor/editor_dialogs.dart';
 import 'package:mtbbs/widgets/bbcode/bbcode_controller.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
+import 'package:mtbbs/widgets/dialog/custom_format_dialog.dart';
 import 'package:mtbbs/widgets/dialog/emoji_picker_sheet.dart';
 
 /// 工具栏动作中"上下文相关入口"的回调集合。
@@ -140,6 +141,8 @@ void _dispatchToolbarAction(
       hooks.onHistoryPage?.call();
     case ToolbarAction.mdImport:
       hooks.onMdImport?.call();
+    case ToolbarAction.customFormat:
+      showCustomFormatPicker(context, ctl, hooks.focus);
     case ToolbarAction.quickReply:
       hooks.onQuickReply?.call();
     case ToolbarAction.mtImage:

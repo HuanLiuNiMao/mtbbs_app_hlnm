@@ -136,6 +136,9 @@ class SettingsProvider extends ChangeNotifier {
   /// 工具栏项配置（全局，只排序+显隐）
   List<ManagedItem> _toolbarItems = defaultToolbarItems();
 
+  /// 编辑器「自定义格式」列表（工具栏 customFormat 按钮弹出，可增删排序）
+  List<ManagedItem> _customFormats = [];
+
   /// 工具栏快捷键（与 toolbarItems 分离持久化，key = item id）
   Map<String, String> _toolbarShortcuts = defaultToolbarShortcuts();
 
@@ -286,6 +289,9 @@ class SettingsProvider extends ChangeNotifier {
   bool get editorStartupCheck => _editorStartupCheck;
 
   List<ManagedItem> get toolbarItems => List.unmodifiable(_toolbarItems);
+
+  /// 编辑器「自定义格式」（可见项按列表顺序；工具栏 customFormat 面板读取）
+  List<ManagedItem> get customFormats => List.unmodifiable(_customFormats);
 
   String shortcut(String action) =>
       _shortcuts[action] ?? ShortcutHelper.defaults[action] ?? '';

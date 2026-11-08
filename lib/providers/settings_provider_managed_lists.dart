@@ -107,6 +107,39 @@ extension SettingsManagedLists on SettingsProvider {
     await _persistToolbar();
   }
 
+  // ==================== 编辑器自定义格式 ====================
+  Future<void> _persistCustomFormats() async {
+    await _persistApp();
+    _notify();
+  }
+
+  Future<void> addCustomFormat(ManagedItem item) async {
+    _customFormats.add(item);
+    await _persistCustomFormats();
+  }
+
+  Future<void> updateCustomFormat(String id, ManagedItem newValue) async {
+    final i = _customFormats.indexWhere((e) => e.id == id);
+    if (i < 0) return;
+    _customFormats[i] = newValue;
+    await _persistCustomFormats();
+  }
+
+  Future<void> deleteCustomFormat(String id) async {
+    _customFormats.removeWhere((e) => e.id == id);
+    await _persistCustomFormats();
+  }
+
+  Future<void> moveCustomFormat(int from, int to) async {
+    reorderManagedItems(_customFormats, from, to);
+    await _persistCustomFormats();
+  }
+
+  Future<void> toggleCustomFormat(String id) async {
+    toggleManagedItem(_customFormats, id);
+    await _persistCustomFormats();
+  }
+
   // ==================== 迷你编辑器：上下文可见性 ====================
 
   /// 设置某工具栏项在指定迷你上下文的可见性。

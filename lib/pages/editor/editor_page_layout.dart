@@ -112,6 +112,9 @@ extension on _EditorPageState {
                       case 'toolbar':
                         if (!context.mounted) return;
                         await context.push('/settings/editor');
+                      case 'settings':
+                        if (!context.mounted) return;
+                        await context.push('/settings');
                       case 'info':
                         if (!context.mounted) return;
                         final curTitle = _session.titleCtl.text.trim();
@@ -187,7 +190,16 @@ extension on _EditorPageState {
                       value: 'toolbar',
                       child: ListTile(
                         leading: Icon(Icons.tune, size: 20),
-                        title: Text('工具栏设置'),
+                        title: Text('编辑框设置'),
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'settings',
+                      child: ListTile(
+                        leading: Icon(Icons.settings_outlined, size: 20),
+                        title: Text('设置'),
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                       ),

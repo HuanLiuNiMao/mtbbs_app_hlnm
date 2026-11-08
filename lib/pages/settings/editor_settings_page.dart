@@ -108,6 +108,15 @@ class _EditorSettingsPageState extends State<EditorSettingsPage> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showQuickRepliesDialog(context, settings),
             ),
+            ListTile(
+              leading: _iconBox(Icons.auto_fix_high, cs.onSurfaceVariant),
+              title: const Text('自定义格式'),
+              subtitle: Text(
+                '${settings.customFormats.length} 项 · 编辑器工具栏「自定义格式」面板中可选用',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showCustomFormatsDialog(context, settings),
+            ),
           ]),
         ],
       ),
@@ -347,6 +356,60 @@ class _EditorSettingsPageState extends State<EditorSettingsPage> {
     }
 
     if (context.mounted) await _showToolbarDialog(context, settings);
+    return result;
+  }
+
+  /// 自定义格式管理：增 / 删 / 改 / 排序 / 显隐（与工具栏模板项同一套编辑弹窗）
+  Future<void> _showCustomFormatsDialog(
+    BuildContext context,
+    SettingsProvider settings,
+  ) async {
+    await showManagedListDialog(
+      context: context,
+      title: '自定义格式',
+      items: settings.customFormats,
+      emptyHint: '暂无自定义格式',
+      onAdd: () => _addCustomFormat(context, settings),
+      onEdit: (item) => _editCustomFormat(context, settings, item),
+      onDelete: (id) async {
+        await settings.deleteCustomFormat(id);
+        return true;
+      },
+      onReorder: (from, to) => settings.moveCustomFormat(from, to),
+      onToggleVisibility: (id) => settings.toggleCustomFormat(id),
+    );
+  }
+
+  Future<ManagedItem?> _addCustomFormat(
+    BuildContext context,
+    SettingsProvider settings,
+  ) async {
+    final result = await showToolbarTemplateDialog(
+      context,
+      isCustomFormat: true,
+    );
+    if (result == null || !context.mounted) return null;
+    await settings.addCustomFormat(result);
+    if (context.mounted) {
+      showToast('已新增「${result.name}」', duration: const Duration(seconds: 1));
+      await _showCustomFormatsDialog(context, settings);
+    }
+    return result;
+  }
+
+  Future<ManagedItem?> _editCustomFormat(
+    BuildContext context,
+    SettingsProvider settings,
+    ManagedItem item,
+  ) async {
+    final result = await showToolbarTemplateDialog(
+      context,
+      initial: item,
+      isCustomFormat: true,
+    );
+    if (result == null || !context.mounted) return null;
+    await settings.updateCustomFormat(item.id, result);
+    if (context.mounted) await _showCustomFormatsDialog(context, settings);
     return result;
   }
 
