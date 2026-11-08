@@ -200,6 +200,54 @@ void main() {
     });
   });
 
+  group('我的帖子提醒：整条隐藏', () {
+    test('默认（不保留提示）命中即整条隐藏', () {
+      final f = cfg();
+      expect(isMypostEntryBlocked('谢谢分享', f), isTrue);
+      expect(shouldHideMypostEntry('谢谢分享', f), isTrue);
+    });
+
+    test('打开「命中后保留提示」→ 不隐藏（改为渲染一行提示）', () {
+      final f = cfg().copyWith(showBlockedPlaceholder: true);
+      expect(isMypostEntryBlocked('谢谢分享', f), isTrue);
+      expect(shouldHideMypostEntry('谢谢分享', f), isFalse);
+    });
+
+    test('预览未到 / 为空时不动（不隐藏）', () {
+      final f = cfg();
+      expect(isMypostEntryBlocked(null, f), isFalse);
+      expect(isMypostEntryBlocked('', f), isFalse);
+      expect(shouldHideMypostEntry(null, f), isFalse);
+    });
+
+    test('未命中屏蔽词不隐藏', () {
+      final f = cfg();
+      expect(isMypostEntryBlocked('谢谢分享，这是一条足够长的正常回复内容', f), isFalse);
+      expect(shouldHideMypostEntry('这是一条正常回复', f), isFalse);
+    });
+
+    test('触发方式不参与判定（消息页拿不到板块/隐藏贴）', () {
+      final f = cfg(onlyHiddenThread: true, boards: ['水区']);
+      // 原样判定会因拿不到上下文而不屏蔽
+      expect(shouldBlockCommentBbcode('谢谢分享', f), isFalse);
+      // 提醒条目按「全局生效」判定 → 照常隐藏
+      expect(shouldHideMypostEntry('谢谢分享', f), isTrue);
+    });
+
+    test('总开关关闭 / 无屏蔽词时不隐藏', () {
+      expect(shouldHideMypostEntry('谢谢分享', cfg(enabled: false)), isFalse);
+      expect(
+        shouldHideMypostEntry('谢谢分享', cfg(keywords: const [])),
+        isFalse,
+      );
+    });
+
+    test('「回复别人」的引用楼层不隐藏', () {
+      final f = cfg();
+      expect(shouldHideMypostEntry('[quote]引用某人的话[/quote]谢谢分享', f), isFalse);
+    });
+  });
+
   group('隐藏贴判据', () {
     test('未回复的 locked 占位算隐藏贴', () {
       const code =

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mtbbs/api/home/mypost/export.dart' as mypost_api;
 import 'package:mtbbs/config/notice_config.dart';
 import 'package:mtbbs/core/utils/content_filter.dart';
+import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/core/utils/url_router.dart';
 import 'package:mtbbs/core/utils/url_util.dart';
 import 'package:mtbbs/models/post_preview.dart';
@@ -39,6 +40,18 @@ class _MypostTabState extends State<MypostTab>
   final Map<int, PostPreviewData?> _previews = {};
   final Set<int> _previewLoading = {};
 
+  /// 本代（一次 load / 刷新 / 切子类型）已自动补页的次数。
+  ///
+  /// 整页条目都被屏蔽词命中时，列表没有任何可滚动的行，触底加载更多不会被
+  /// 触发 → 用户会卡在一个空白页上，后面几页的正常提醒永远看不到。这里按
+  /// 帖子列表屏蔽的同款思路自动向后补页，但**限次**：补页是兜底，不是把整帖
+  /// 提醒全拉一遍。
+  int _autoExtendCount = 0;
+  static const int _autoExtendMax = 3;
+
+  /// 已排了一次补页、还没执行完 → 避免 build 连跑几次时重复排
+  bool _autoExtendScheduled = false;
+
   @override
   Future<Map<String, dynamic>> fetchPage(int page) =>
       mypost_api.getMypostList(ApiService().dio, page: page, type: noticeType);
@@ -51,6 +64,7 @@ class _MypostTabState extends State<MypostTab>
   void onItemsReplaced() {
     _previews.clear();
     _previewLoading.clear();
+    _autoExtendCount = 0;
     // 自动触发预览请求
     for (int i = 0; i < items.length; i++) {
       _tryFetchPreview(i);
@@ -69,6 +83,8 @@ class _MypostTabState extends State<MypostTab>
   void onSubtypeChanged(String type) {
     _previews.clear();
     _previewLoading.clear();
+    _autoExtendCount = 0;
+    _autoExtendScheduled = false;
   }
 
   // ==================== 预览逻辑 ====================
@@ -103,17 +119,74 @@ class _MypostTabState extends State<MypostTab>
   @override
   Widget build(BuildContext context) {
     // 子类型 chip 常驻：某个子类型为空时也要能切到别的类型（7 个子类型尤其需要）
-    return buildNoticeTab(body: _body, alwaysShowHeader: true);
+    //
+    // 订阅放在 build 里而不是 _body 里：_body 由 PageView.builder 的
+    // itemBuilder 调用，那时已不属于 build 阶段，`context.watch` 会触发
+    // provider 的「在 widget 树之外监听」断言。用 watch 是为了让用户改完
+    // 屏蔽词回到列表时重新判定一遍（用 read 不会重建，旧结果留在屏幕上，
+    // 看起来仍然「过滤没生效」）。
+    final settings = context.watch<SettingsProvider>();
+    return buildNoticeTab(
+      body: () => _body(settings.commentFilter, settings.autoDetectUrls),
+      alwaysShowHeader: true,
+    );
   }
 
-  Widget _body() => buildPagedList(
-    emptyView: const EmptyView(icon: Icons.forum_outlined, text: '暂无提醒'),
-    itemBuilder: (_, i) => _buildItem(items[i], i),
-  );
+  Widget _body(CommentFilterConfig cfg, bool autoDetectUrls) {
+    // 命中屏蔽词且「命中后保留提示」关闭 → 整条提醒都不渲染（不是只藏正文）。
+    //
+    // 早期只把回帖正文换成一行提示，卡片本身（头像、用户名、「回复了您的
+    // 帖子」、查看/回复按钮）全部留着，用户设了屏蔽词却仍看到消息在列表里，
+    // 表现为「屏蔽没生效」。内容既已被主动屏蔽，整条提醒就没有存在意义。
+    final hidden = <int>{
+      for (var i = 0; i < items.length; i++)
+        if (shouldHideMypostEntry(_previews[i]?.bbcode, cfg)) i,
+    };
+    // 整页都被屏蔽 → 自动补一页（限次），否则用户只能盯着空白页
+    _maybeAutoExtend(hidden.length);
+    return buildPagedList(
+      emptyView: EmptyView(
+        icon: Icons.forum_outlined,
+        text: items.isNotEmpty && hidden.length == items.length
+            ? '命中屏蔽词，本页内容已隐藏'
+            : '暂无提醒',
+      ),
+      itemVisible: (i) => !hidden.contains(i),
+      itemBuilder: (_, i) => _buildItem(items[i], i, cfg, autoDetectUrls),
+    );
+  }
+
+  /// 整页条目都被屏蔽时自动补一页（限次）。
+  ///
+  /// 判据是「隐藏条数 == 当前条目数」而不是「小于一页基准」：这里的预览是
+  /// 逐条异步拉回来的，用基准条数会在预览还没回来时误判成整页被屏蔽，
+  /// 白白发起请求。只在 build 里被调用，实际加载放到帧后执行。
+  void _maybeAutoExtend(int hiddenCount) {
+    if (items.isEmpty || hiddenCount != items.length) return;
+    if (_autoExtendScheduled) return;
+    if (_autoExtendCount >= _autoExtendMax) return;
+    if (!hasMore || isLoading || isLoadingMore) return;
+    // 预览还在拉 → 等这一轮回来再判定
+    if (_previewLoading.isNotEmpty) return;
+    _autoExtendCount++;
+    _autoExtendScheduled = true;
+    final next = pageNumber + 1;
+    AppLogger.i('MYPOST', '全页命中屏蔽词，自动补第 $next 页');
+    Future.microtask(() async {
+      _autoExtendScheduled = false;
+      if (!mounted) return;
+      await loadMore();
+    });
+  }
 
   // ==================== Item ====================
 
-  Widget _buildItem(Map<String, dynamic> item, int index) {
+  Widget _buildItem(
+    Map<String, dynamic> item,
+    int index,
+    CommentFilterConfig commentCfg,
+    bool autoDetectUrls,
+  ) {
     final cs = Theme.of(context).colorScheme;
     final uid = item['uid'] as String? ?? '';
     final username = item['username'] as String? ?? '';
@@ -124,20 +197,9 @@ class _MypostTabState extends State<MypostTab>
     final ids = parseViewUrl(viewUrl);
     final isPreviewLoading = _previewLoading.contains(index);
     final preview = _previews[index];
-    // 功能②：评论屏蔽同样作用于「我的帖子」的回帖预览。
-    // 这里只有单条 bbcode（没有 PostItem），用单条判定入口。
-    //
-    // 触发方式（仅隐藏贴 / 分板块）需要「当前主题」的上下文，而消息条目
-    // 只有 tid/pid，拿不到板块名也拿不到隐藏贴标记。这两个触发方式是给
-    // 「浏览帖子时的评论区」做精细控制的，在这里无法判定，所以**不参与**
-    // 消息页判定：只要开关开着且有屏蔽词，就按屏蔽词过滤——否则用户设了
-    // 触发方式后消息页会永久失效（与需求「消息里也过滤」相悖）。
-    final settings = context.read<SettingsProvider>();
-    final commentCfg = settings.commentFilter;
-    final previewBlocked =
-        preview != null &&
-        preview.bbcode.isNotEmpty &&
-        shouldBlockCommentBbcode(preview.bbcode, commentCfg.withoutTrigger());
+    // 命中屏蔽词时：默认整卡已从列表里移除（见 _body），只有用户打开
+    // 「命中后保留提示」才会走到这里 → 渲染一行提示代替正文。
+    final blocked = isMypostEntryBlocked(preview?.bbcode, commentCfg);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
@@ -198,30 +260,21 @@ class _MypostTabState extends State<MypostTab>
                   ),
                 ),
               ),
-            // 命中评论屏蔽词时**默认什么都不渲染**（不留占位框）。
+            // 命中屏蔽词时正文换成一行提示。
             //
-            // 早期这里画一整行「回帖内容已屏蔽（命中评论屏蔽词）」，在卡片里
-            // 视觉上就是一个突兀的大框——既然内容已经被主动屏蔽，再占一块
-            // 面积提醒「这里本来有东西」纯属噪音。想要这层提示的用户可以在
-            // 「设置 → 评论屏蔽 → 命中后保留提示」打开。
-            //
-            // 注意：屏蔽只隐藏回帖正文，下面的「查看 / 回复」按钮行照常渲染，
-            // 用户仍可点进帖子按完整上下文查看。
-            if (!previewBlocked &&
-                preview != null &&
-                preview.bbcode.isNotEmpty)
+            // 默认配置下这张卡根本不会出现在列表里（见 _body），能走到这里
+            // 只可能是用户打开了「设置 → 评论屏蔽 → 命中后保留提示」，此时
+            // 「查看 / 回复」按钮行照常渲染，用户仍可点进去看完整上下文。
+            if (!blocked && preview != null && preview.bbcode.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: PostHtmlWidget(
                   bbcode: preview.bbcode,
                   disabledTags: const {},
-                  autoDetectUrls: settings.autoDetectUrls,
+                  autoDetectUrls: autoDetectUrls,
                 ),
               )
-            else if (previewBlocked &&
-                commentCfg.showBlockedPlaceholder &&
-                preview != null &&
-                preview.bbcode.isNotEmpty)
+            else if (blocked && preview != null && preview.bbcode.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
@@ -274,7 +327,7 @@ class _MypostTabState extends State<MypostTab>
                   ),
                 if (preview != null &&
                     preview.bbcode.isNotEmpty &&
-                    !previewBlocked) ...[
+                    !blocked) ...[
                   const SizedBox(width: 6),
                   PopupMenuButton<String>(
                     padding: EdgeInsets.zero,

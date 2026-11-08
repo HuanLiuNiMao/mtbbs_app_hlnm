@@ -131,9 +131,15 @@ mixin PagedListStateMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// 当前子类型的内容块：加载 / 错误 / 空 / 列表 + 分页。
+  ///
+  /// [itemVisible] 为本地投影：返回 false 的条目**整条不渲染**，但下标仍然
+  /// 对应 [items]（`itemBuilder` 收到的仍是原始下标）。用于「命中屏蔽后整条
+  /// 移除」的场景（消息 → 我的帖子），这样预览缓存、`_tryFetchPreview` 的
+  /// 下标都不会因为过滤而错位。传 null 时全量渲染；过滤掉全部条目按空态处理。
   Widget buildPagedList({
     required Widget emptyView,
     required IndexedWidgetBuilder itemBuilder,
+    bool Function(int index)? itemVisible,
   }) {
     if (isLoading) return const LoadingView();
     if (errorText != null) {
@@ -143,7 +149,14 @@ mixin PagedListStateMixin<T extends StatefulWidget> on State<T> {
         showBack: false,
       );
     }
-    if (items.isEmpty) return emptyView;
+    final indices = itemVisible == null
+        ? null
+        : [
+            for (var i = 0; i < items.length; i++)
+              if (itemVisible(i)) i,
+          ];
+    final count = indices?.length ?? items.length;
+    if (count == 0) return emptyView;
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         if (notification is ScrollEndNotification) _onScroll();
@@ -155,12 +168,12 @@ mixin PagedListStateMixin<T extends StatefulWidget> on State<T> {
           controller: scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 4),
-          itemCount: items.length + (isLoadingMore || !hasMore ? 1 : 0),
+          itemCount: count + (isLoadingMore || !hasMore ? 1 : 0),
           itemBuilder: (context, i) {
-            if (i >= items.length) {
+            if (i >= count) {
               return LoadMoreFooter(loading: isLoadingMore, hasMore: hasMore);
             }
-            return itemBuilder(context, i);
+            return itemBuilder(context, indices == null ? i : indices[i]);
           },
         ),
       ),

@@ -383,6 +383,27 @@ bool shouldBlockCommentBbcode(
   return shouldBlockComment(t, buildCommentMatchers(f.keywords));
 }
 
+/// 「消息 → 我的帖子」的一条提醒是否应**整条隐藏**（连卡片一起移除）。
+///
+/// 该列表的每条提醒就是「某人回复了你的帖子」+ 回帖预览。命中屏蔽词时只把
+/// 正文换成提示、卡片照旧留着，用户看到的是「消息还在」，等于屏蔽没生效。
+/// 所以默认连卡片一起移除；只有用户显式打开「命中后保留提示」
+/// （[CommentFilterConfig.showBlockedPlaceholder]）才保留整卡 + 一行提示。
+///
+/// [bbcode] 为回帖预览正文；null（还没拉到 / 拉取失败）或为空时**不隐藏**：
+/// 无从判定就不动，等预览回来再决定，避免「一进页面整片消失、随后又冒出来」。
+///
+/// 触发方式不参与（[CommentFilterConfig.withoutTrigger]）：这里只有 tid/pid，
+/// 拿不到板块名与隐藏贴标记，沿用会让该列表在设置触发方式后永久不过滤。
+bool isMypostEntryBlocked(String? bbcode, CommentFilterConfig f) {
+  if (bbcode == null || bbcode.isEmpty) return false;
+  return shouldBlockCommentBbcode(bbcode, f.withoutTrigger());
+}
+
+/// 是否把整条提醒从列表里移除 = 命中屏蔽词 且 用户没开「命中后保留提示」。
+bool shouldHideMypostEntry(String? bbcode, CommentFilterConfig f) =>
+    !f.showBlockedPlaceholder && isMypostEntryBlocked(bbcode, f);
+
 /// 对评论（楼层）做屏蔽词过滤：命中即隐藏整层楼。
 ///
 /// - [f] 为评论屏蔽配置（开关 + 触发方式 + 屏蔽词）；
