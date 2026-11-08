@@ -4,6 +4,12 @@ name: Release
 #   有值 → 构建后发布到该 tag 的 GitHub Release，版本名 = 该输入 + 9 位 commit hash
 #   留空 → 仅测试打包（beta 形态），不发 Release，产物在 Actions 页面下载
 #
+# `release_label` 决定这条 Release 在 GitHub 上的标记，与 App 的两个更新渠道一一对应：
+#   latest     → 标为 **Latest**，注入渠道 release，只有「稳定版」能收到
+#   prerelease → 标为 **Pre-release**，注入渠道 beta，只有「测试版」能收到
+# 两者可同时存在于同一仓库：稳定版渠道按 `prerelease != true` 过滤，互不干扰。
+# 「只想出个测试包、不发 Release」不需要额外选项 —— `tag` 留空即是。
+#
 # 版本号规则（对齐 PiliPlus）：
 #   - 版本名：`tag` 输入去掉 v 前缀，再追加 9 位 commit hash；
 #     **留空 → beta 形态**（固定 1.0.0-beta / 1，Android 另切成 .beta 独立应用，与正式版共存）
@@ -26,6 +32,14 @@ on:
         required: false
         default: true
         type: boolean
+      release_label:
+        description: '发布标签：latest → 标为 Latest（稳定版渠道）/ prerelease → 标为 Pre-release（测试版渠道）'
+        required: false
+        default: latest
+        type: choice
+        options:
+          - latest
+          - prerelease
       sign_mode:
         description: 'Android 签名方式：signed（仅签名）/ unsigned（仅未签名）/ both（两者同发，默认）'
         required: false
@@ -37,7 +51,8 @@ on:
           - unsigned
 
   # 允许从命令行/脚本触发（curl / gh / CI 互相调用），方便本地调试与自动化。
-  # 载荷字段与 workflow_dispatch 的 inputs 同名：tag / build_android / build_windows / sign_mode。
+  # 载荷字段与 workflow_dispatch 的 inputs 同名：tag / build_android / build_windows /
+  # release_label / sign_mode。
   # 网页按钮走 workflow_dispatch，行为不受影响。
   repository_dispatch:
     types: [release]
@@ -73,11 +88,36 @@ jobs:
         shell: pwsh
         env:
           INPUT_TAG: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
+          INPUT_LABEL: ${{ github.event.inputs.release_label || github.event.client_payload.release_label || 'latest' }}
         run: |
+          # 发布标签决定注入给 App 的更新渠道（与 App 的两个渠道一一对应）：
+          #   latest     → release（稳定版渠道只接受未打 prerelease 的发布）
+          #   prerelease → beta   （测试版渠道接受 prerelease 标记的发布）
+          # `tag` 留空 = 只出测试包（beta 形态，不发 Release），此时一律注入 beta：
+          # 该形态的 Android 包是独立应用（包名带 .beta），走 release 渠道只会
+          # 检出一个装不上的包；Windows 侧同理，保持两端口径一致。
+          #
+          # 归一化与 App 的 UpdateConfig.parseChannel 完全相同（去分隔符/忽略大小写），
+          # 这样 curl 触发时写 `Pre-release` / `pre-release` 都不会被误判成稳定版。
+          $label = ($env:INPUT_LABEL).Trim().ToLowerInvariant() -replace '[-_\s]', ''
+          if ([string]::IsNullOrWhiteSpace($label)) {
+            # 没传或传空 → 按 latest；保证 RELEASE_LABEL 永不为空，
+            # 后面发布步骤的 `!= 'prerelease'` 才不会落到含糊的中间态。
+            $label = 'latest'
+          } elseif ($label -notin @('latest', 'prerelease')) {
+            Write-Host "::warning::未识别的 release_label=$($env:INPUT_LABEL)，按 latest 处理"
+            $label = 'latest'
+          }
+          # 归一化结果写进 GITHUB_ENV，供后面的「发布到 GitHub Release」直接读：
+          # Actions 表达式里没有 replace()，原始输入若写成 `Pre-release` 会判成
+          # 「非 prerelease」→ 悄悄变成 Latest。归一化只在 PowerShell 里做一次。
+          "RELEASE_LABEL=$label" | Add-Content -Path $env:GITHUB_ENV
+          $channel = if ($label -eq 'prerelease' -or [string]::IsNullOrWhiteSpace($env:INPUT_TAG)) { 'beta' } else { 'release' }
+          Write-Host "release_label=$($env:INPUT_LABEL) → 注入渠道 $channel"
           if ([string]::IsNullOrWhiteSpace($env:INPUT_TAG)) {
-            scripts/version.ps1 android -Beta -Repo ${{ github.repository }} -Channel beta
+            scripts/version.ps1 android -Beta -Repo ${{ github.repository }} -Channel $channel
           } else {
-            scripts/version.ps1 android -VersionName $env:INPUT_TAG -Repo ${{ github.repository }} -Channel release
+            scripts/version.ps1 android -VersionName $env:INPUT_TAG -Repo ${{ github.repository }} -Channel $channel
           }
 
       - name: 写入签名（可选，配置无效自动跳过 → MT 内置签名）
@@ -287,11 +327,23 @@ jobs:
         run: scripts/artifact_summary.ps1 -Title 'Android APK' -Patterns 'MTBBS_android_*.apk'
 
       - name: 发布到 GitHub Release
+        # `tag` 留空 = 只出测试包，不发 Release
         if: ${{ (github.event.inputs.tag || github.event.client_payload.tag) != '' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
           name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
+          # release_label 直连 GitHub 的两种标记，App 的两个更新渠道各取所需：
+          #   latest     → 不带 prerelease，且显式 make_latest=true（抢占 Latest 角标）
+          #   prerelease → 带 prerelease，App 的「稳定版」渠道会按此字段过滤掉它
+          # 因此同一 tag 重建、或正式版/预览版混发，都不会把 Latest 角标弄错。
+          #
+          # 读 env.RELEASE_LABEL（「生成版本信息」步骤归一化后写入 GITHUB_ENV）而不是
+          # 原始 input：表达式里没有 replace()，`Pre-release` 这种写法会被判成
+          # 「非 prerelease」→ 悄悄变成 Latest。该值不会被写成空串（归一化时已兜底
+          # 成 latest），所以不会出现「两个都是 false、角标不更新」的中间态。
+          prerelease: ${{ env.RELEASE_LABEL == 'prerelease' }}
+          make_latest: ${{ env.RELEASE_LABEL != 'prerelease' }}
           files: MTBBS_android_*.apk
 
       - name: 上传构建产物
@@ -345,11 +397,28 @@ jobs:
         shell: pwsh
         env:
           INPUT_TAG: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
+          INPUT_LABEL: ${{ github.event.inputs.release_label || github.event.client_payload.release_label || 'latest' }}
         run: |
+          # 与 Android 完全同口径：prerelease 或 tag 留空（仅测试包）→ beta，其余 → release。
+          # 注：改动前这里写死 `release`，导致预览版的 Windows 包被注入成稳定版渠道、
+          # 去比对 Latest 发布，永远检不到自己的预览版。
+          $label = ($env:INPUT_LABEL).Trim().ToLowerInvariant() -replace '[-_\s]', ''
+          if ([string]::IsNullOrWhiteSpace($label)) {
+            # 没传或传空 → 按 latest；保证 RELEASE_LABEL 永不为空，
+            # 后面发布步骤的 `!= 'prerelease'` 才不会落到含糊的中间态。
+            $label = 'latest'
+          } elseif ($label -notin @('latest', 'prerelease')) {
+            Write-Host "::warning::未识别的 release_label=$($env:INPUT_LABEL)，按 latest 处理"
+            $label = 'latest'
+          }
+          # 同 Android：归一化结果写进 GITHUB_ENV，供发布步骤读（表达式里没法 replace）
+          "RELEASE_LABEL=$label" | Add-Content -Path $env:GITHUB_ENV
+          $channel = if ($label -eq 'prerelease' -or [string]::IsNullOrWhiteSpace($env:INPUT_TAG)) { 'beta' } else { 'release' }
+          Write-Host "release_label=$($env:INPUT_LABEL) → 注入渠道 $channel"
           if ([string]::IsNullOrWhiteSpace($env:INPUT_TAG)) {
-            scripts/version.ps1 -Beta -Repo ${{ github.repository }} -Channel beta
+            scripts/version.ps1 -Beta -Repo ${{ github.repository }} -Channel $channel
           } else {
-            scripts/version.ps1 -VersionName $env:INPUT_TAG -Repo ${{ github.repository }} -Channel release
+            scripts/version.ps1 -VersionName $env:INPUT_TAG -Repo ${{ github.repository }} -Channel $channel
           }
 
       - name: 构建 Windows Release
@@ -378,11 +447,16 @@ jobs:
         run: scripts/artifact_summary.ps1 -Title 'Windows 安装包' -Patterns 'MTBBS_windows_*.exe','MTBBS_windows_*.zip'
 
       - name: 发布到 GitHub Release
+        # `tag` 留空 = 只出测试包，不发 Release
         if: ${{ (github.event.inputs.tag || github.event.client_payload.tag) != '' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
           name: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
+          # 同 Android：latest → Latest 角标；prerelease → Pre-release 标记
+          # （读「生成版本信息」归一化后写入 GITHUB_ENV 的 RELEASE_LABEL）
+          prerelease: ${{ env.RELEASE_LABEL == 'prerelease' }}
+          make_latest: ${{ env.RELEASE_LABEL != 'prerelease' }}
           files: |
             MTBBS_windows_*.exe
             MTBBS_windows_*.zip
