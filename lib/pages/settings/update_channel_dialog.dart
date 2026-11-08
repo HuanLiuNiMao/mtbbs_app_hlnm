@@ -5,10 +5,10 @@ import 'package:mtbbs/services/update_service.dart';
 
 /// 更新渠道选择对话框
 ///
-/// 只影响「检查哪个渠道的发布」，**不改变本包的 applicationId**。
-/// beta 是独立包（`.beta` 后缀），所以从正式版切到测试版渠道后，
-/// 检测到的 beta 版本无法覆盖安装——这里必须把这件事说清楚，
-/// 否则用户会以为点了下载就能升级。
+/// 只影响「检查哪一类发布」，**不改变本包的 applicationId**。
+/// 两个渠道（稳定版 / 测试版）对应 GitHub Release 的 Latest / Pre-release 标记，
+/// 产物是同一个应用，因此跨渠道也能覆盖安装；这里仍提示「可能需手动下载」，
+/// 是为了覆盖签名被换过（例如从 MT 内置签名切到自有 keystore）的情况。
 class UpdateChannelDialog {
   static void show(BuildContext context, SettingsProvider settings) {
     final service = UpdateService.instance;
@@ -102,18 +102,19 @@ class UpdateChannelDialog {
     );
   }
 
-  /// 跨渠道升级提示：说明「检测得到 ≠ 装得上」。
+  /// 跨渠道升级提示：说明「检测得到，但可能装不上」。
   ///
-  /// [build] 是当前安装包的渠道，用来把「为什么装不上」说具体：
-  /// 从稳定版切到测试版时，beta 包是独立 applicationId（`.beta` 后缀），
-  /// 不是同一个应用，系统根本不会走「覆盖安装」这条路。
+  /// [build] 是当前安装包的渠道。两个渠道产物同源同签名，正常情况下能覆盖安装；
+  /// 装不上只会发生在签名变过（例如换了 keystore）或包名不同（曾经用 `.beta`
+  /// 独立包）这两种历史情况，所以提示要说的是「可能」，并给出应对方式。
   static Widget _crossChannelHint(BuildContext ctx, UpdateChannel build) {
     final cs = Theme.of(ctx).colorScheme;
     final reason = build == UpdateChannel.release
-        ? '测试版是独立安装包（包名带 .beta），与当前应用不是同一个，'
-              '检测到的新版本需要手动下载安装，不会覆盖当前应用。'
-        : '不同渠道的安装包签名/包名可能不同，检测到的新版本可能无法直接'
-              '覆盖安装，需要手动下载安装。';
+        ? '测试版渠道包含预发布（Pre-release）包，版本更新但可能不稳定。'
+              '两者是同一个应用，一般可直接覆盖安装；若提示签名冲突，'
+              '说明中途换过签名，需要卸载后重装。'
+        : '稳定版渠道只收正式发布（Latest）。当前包若仍来自旧的 `.beta` '
+              '独立包，检测到的新版本可能无法直接覆盖安装，需要手动下载安装。';
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(

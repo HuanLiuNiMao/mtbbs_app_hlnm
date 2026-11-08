@@ -11,6 +11,8 @@
 #     `--dart-define=BETA=true` 由 gradle 切成独立应用（见 docs/15）
 #   - 生成 mtbbs_release.json，供 `flutter build --dart-define-from-file` 注入
 #   - 可用 -Repo / -Channel 注入更新源与更新渠道（不传 -Repo = 本地包不检查更新）
+#     -Channel 接受 release / latest（→ 稳定版渠道）与 beta / prerelease / debug
+#     （→ 测试版渠道），后三者是同一渠道的别名（见 lib/config/update_config.dart）
 #   - 导出 MTBBS_VERSION_NAME / MTBBS_VERSION_CODE / MTBBS_VERSION / MTBBS_BETA
 #     （注入更新源时另导出 MTBBS_REPO / MTBBS_CHANNEL）环境变量，
 #     CI 下同时写入 GITHUB_ENV 供后续步骤使用（Inno Setup 安装包版本号也读它）
@@ -103,9 +105,20 @@ try {
     }
     $channelValue = ''
     if (-not [string]::IsNullOrWhiteSpace($Channel)) {
-        $channelValue = $Channel.Trim().ToLowerInvariant()
-        if ($channelValue -notin @('release', 'beta', 'debug')) {
-            throw "Channel 只能是 release / beta / debug：$Channel"
+        # 归一化：允许直接写 GitHub 的标记名（latest / prerelease / pre-release），
+        # 与 App 的 UpdateConfig.parseChannel 保持同一套别名，省掉调用方转换。
+        # debug 是历史值（早期指「本地调试包」），已并入 beta，这里同样兼容。
+        $raw = $Channel.Trim().ToLowerInvariant() -replace '[-_\s]', ''
+        $channelValue = switch ($raw) {
+            'release' { 'release' }
+            'latest' { 'release' }
+            'beta' { 'beta' }
+            'prerelease' { 'beta' }
+            'debug' { 'beta' }
+            default { '' }
+        }
+        if ($channelValue -eq '') {
+            throw "Channel 只能是 release / latest / beta / prerelease：$Channel"
         }
     }
     elseif ($repoValue -ne '') {

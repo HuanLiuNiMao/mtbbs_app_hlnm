@@ -38,7 +38,8 @@ List<SettingsModel> aboutPageSettings() {
         icon: Icons.alt_route,
         onTap: (ctx, s) => UpdateChannelDialog.show(ctx, s),
       ),
-    // 自动检查由渠道策略决定（beta / debug 默认关闭）
+    // 自动检查由渠道策略决定（两个渠道默认都开启，保留条件是为了让策略改动
+    // 只落在一处：改 `defaultPolicies` 即可，这里不需要同步改）
     if (service.autoCheckEnabled)
       SwitchSetting(
         title: '自动检查更新',
@@ -47,7 +48,7 @@ List<SettingsModel> aboutPageSettings() {
         value: (s) => s.autoCheckUpdate,
         onChanged: (ctx, s, v) => s.setAutoCheckUpdate(v),
       ),
-    // 手动检查按渠道策略提供（便于 beta / debug 排查）
+    // 手动检查按渠道策略提供
     if (service.manualCheckEnabled)
       NormalSetting(
         title: '检查更新',

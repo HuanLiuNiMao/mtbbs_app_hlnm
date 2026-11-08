@@ -194,21 +194,24 @@ void main() {
   });
 
   group('渠道策略', () {
-    test('release 自动检查且可下载', () {
+    test('release 自动检查、可下载、拒绝 prerelease', () {
       final policy = UpdateConfig.defaultPolicies[UpdateChannel.release]!;
       expect(policy.autoCheck, isTrue);
       expect(policy.manualCheck, isTrue);
       expect(policy.canDownload, isTrue);
       expect(policy.includePrerelease, isFalse);
     });
-
-    test('beta / debug 不自动检查、不可下载', () {
-      for (final channel in [UpdateChannel.beta, UpdateChannel.debug]) {
-        final policy = UpdateConfig.defaultPolicies[channel]!;
-        expect(policy.autoCheck, isFalse, reason: channel.name);
-        expect(policy.manualCheck, isTrue, reason: channel.name);
-        expect(policy.canDownload, isFalse, reason: channel.name);
-        expect(policy.includePrerelease, isTrue, reason: channel.name);
+    test('beta 同样自动检查、可下载（同源同签名，能覆盖安装）', () {
+      final policy = UpdateConfig.defaultPolicies[UpdateChannel.beta]!;
+      expect(policy.autoCheck, isTrue);
+      expect(policy.manualCheck, isTrue);
+      expect(policy.canDownload, isTrue);
+      expect(policy.includePrerelease, isTrue);
+    });
+    test('恰好两个渠道，且各有策略', () {
+      expect(UpdateChannel.values.length, 2);
+      for (final channel in UpdateChannel.values) {
+        expect(UpdateConfig.defaultPolicies.containsKey(channel), isTrue);
       }
     });
   });
@@ -218,10 +221,15 @@ void main() {
       expect(UpdateConfig.fromBuildConfig(), isNull);
     });
 
-    test('渠道解析只接受已知值', () {
+    test('渠道解析接受 GitHub 标记名与历史值', () {
+      // 构建注入用的是 App 内部名 release / beta
       expect(UpdateConfig.parseChannel('release'), UpdateChannel.release);
       expect(UpdateConfig.parseChannel('BETA'), UpdateChannel.beta);
-      expect(UpdateConfig.parseChannel(' debug '), UpdateChannel.debug);
+      // GitHub 的 Latest / Pre-release 标记名也能直接喂进来（命令行触发时省一次转换）
+      expect(UpdateConfig.parseChannel('latest'), UpdateChannel.release);
+      expect(UpdateConfig.parseChannel('Pre-Release'), UpdateChannel.beta);
+      // 历史遗留的 debug 并入 beta，不能让老用户的渠道选择被静默清空
+      expect(UpdateConfig.parseChannel(' debug '), UpdateChannel.beta);
       expect(UpdateConfig.parseChannel('nightly'), isNull);
       expect(UpdateConfig.parseChannel(''), isNull);
     });
@@ -235,7 +243,6 @@ void main() {
     test('展示名与说明齐全', () {
       expect(UpdateChannel.release.label, '稳定版');
       expect(UpdateChannel.beta.label, '测试版');
-      expect(UpdateChannel.debug.label, '调试版');
       for (final c in UpdateChannel.values) {
         expect(c.description, isNotEmpty);
       }
@@ -244,7 +251,6 @@ void main() {
     test('只有稳定版拒绝 prerelease', () {
       expect(UpdateChannel.release.includePrerelease, isFalse);
       expect(UpdateChannel.beta.includePrerelease, isTrue);
-      expect(UpdateChannel.debug.includePrerelease, isTrue);
     });
 
     test('默认跟随构建渠道', () {
@@ -265,8 +271,8 @@ void main() {
     });
 
     test('withChannel(null) 恢复跟随构建', () {
-      final overridden = cfg().withChannel(UpdateChannel.debug);
-      expect(overridden.channel, UpdateChannel.debug);
+      final overridden = cfg().withChannel(UpdateChannel.beta);
+      expect(overridden.channel, UpdateChannel.beta);
       final restored = overridden.withChannel(null);
       expect(restored.channel, UpdateChannel.release);
       expect(restored.isChannelOverridden, isFalse);
@@ -276,10 +282,12 @@ void main() {
       final release = cfg(build: UpdateChannel.release);
       expect(release.policy.autoCheck, isTrue);
       expect(release.policy.canDownload, isTrue);
+      expect(release.policy.includePrerelease, isFalse);
 
+      // 切到测试版：仍然自动检查、仍可下载，只是多了 prerelease
       final asBeta = release.withChannel(UpdateChannel.beta);
-      expect(asBeta.policy.autoCheck, isFalse);
-      expect(asBeta.policy.canDownload, isFalse);
+      expect(asBeta.policy.autoCheck, isTrue);
+      expect(asBeta.policy.canDownload, isTrue);
       expect(asBeta.policy.includePrerelease, isTrue);
     });
 
@@ -293,7 +301,7 @@ void main() {
     test('parseChannel 对未知值返回 null', () {
       expect(UpdateConfig.parseChannel('release'), UpdateChannel.release);
       expect(UpdateConfig.parseChannel('  BETA '), UpdateChannel.beta);
-      expect(UpdateConfig.parseChannel('debug'), UpdateChannel.debug);
+      expect(UpdateConfig.parseChannel('debug'), UpdateChannel.beta);
       expect(UpdateConfig.parseChannel(''), isNull);
       expect(UpdateConfig.parseChannel('nightly'), isNull);
     });

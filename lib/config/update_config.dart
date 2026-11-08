@@ -1,32 +1,31 @@
-import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:mtbbs/config/build_config.dart';
 
 /// 更新渠道。
 ///
-/// 渠道决定「是否自动检查 / 能否下载」，不是编译模式：beta 也是 release 编译，
-/// debug 只是未注入更新源的本地包。
+/// 只保留两个渠道，与 Release workflow 的 `release_label` 输入一一对应：
+/// `latest` → [release]（稳定版），`prerelease` → [beta]（测试版）。
+///
+/// 两者都是**同一个应用**（同 applicationId、同签名）：pre-release 只是 GitHub
+/// 上的一个标记，产物与正式包同源同名，因此测试版渠道也能直接下载覆盖安装。
+/// 真正独立的 `.beta` 应用只出现在「`tag` 留空、仅出测试包」的本地/CI 场景，
+/// 那种包不会发布到 Release，应用内永远检不到（见 `docs/15-版本发布.md`）。
 enum UpdateChannel {
-  /// 正式发布（GitHub Release + 自动检查）
+  /// 正式发布（GitHub Release 标为 Latest + 自动检查）
   release,
 
-  /// 预发布测试包（与正式版独立安装，通常只有 Actions artifact）
-  beta,
-
-  /// 调试包（手动检查仅用于排查）
-  debug;
+  /// 预发布（GitHub Release 标为 Pre-release，含不稳定更新）
+  beta;
 
   /// 设置页显示名
   String get label => switch (this) {
     UpdateChannel.release => '稳定版',
     UpdateChannel.beta => '测试版',
-    UpdateChannel.debug => '调试版',
   };
 
   /// 一句话说明（设置页副标题用）
   String get description => switch (this) {
-    UpdateChannel.release => '正式发布，收到稳定更新',
-    UpdateChannel.beta => '预发布包，版本更新但可能不稳定',
-    UpdateChannel.debug => '本地调试包，仅供排查',
+    UpdateChannel.release => '只收到正式发布（Latest）',
+    UpdateChannel.beta => '含预发布（Pre-release），版本更新但可能不稳定',
   };
 
   /// 是否接受 GitHub 的 pre-release 标记
@@ -156,29 +155,41 @@ class UpdateConfig {
   }
 
   /// 解析渠道字符串；未知值返回 null，由调用方回落到 [defaultChannel]。
+  ///
+  /// 同时接受 GitHub 标记名（`latest` / `prerelease`）与历史遗留的 `debug`：
+  /// 后者早先指「本地调试包」，已并入 `beta`——旧版本持久化下来的 `debug`
+  /// 若直接判为非法，用户重装后渠道选择会被静默清空（表现为"我的设置没了"）。
   static UpdateChannel? parseChannel(String raw) {
-    switch (raw.trim().toLowerCase()) {
+    // 归一化掉分隔符与大小写：GitHub 官方写法是 `Pre-release`，
+    // 命令行触发时手写 `pre-release` / `prerelease` 都能命中，无需调用方先转换。
+    final key = raw.trim().toLowerCase().replaceAll(RegExp(r'[-_\s]'), '');
+    switch (key) {
       case 'release':
+      case 'latest':
         return UpdateChannel.release;
       case 'beta':
-        return UpdateChannel.beta;
+      case 'prerelease':
       case 'debug':
-        return UpdateChannel.debug;
+        return UpdateChannel.beta;
       default:
         return null;
     }
   }
 
-  /// 未显式注入渠道时的推断：beta 形态 → beta；release 编译 → release；其余 → debug。
+  /// 未显式注入渠道时的推断：beta 形态 → beta；其余 → release。
+  ///
+  /// 这里不再有 `debug` 兜底：未注入 `mtbbs.repo` 的本地包 [fromBuildConfig]
+  /// 直接返回 null，压根不走渠道逻辑。
   static UpdateChannel defaultChannel() {
     if (BuildConfig.isBeta) return UpdateChannel.beta;
-    return kReleaseMode ? UpdateChannel.release : UpdateChannel.debug;
+    return UpdateChannel.release;
   }
 
   /// 默认渠道策略。
   ///
-  /// beta / debug 不自动检查、不提供下载：beta 只发 Actions artifact，
-  /// 且独立 applicationId 装不了正式包；debug 只用于手动排查。
+  /// 两个渠道都能自动检查、都能下载：pre-release 与正式版是**同一个应用**
+  /// （同 applicationId / 同签名），装了就能覆盖升级。区别只在「看哪些发布」——
+  /// `release` 只认 Latest，`beta` 额外包含 Pre-release。
   static const Map<UpdateChannel, UpdatePolicy> defaultPolicies = {
     UpdateChannel.release: UpdatePolicy(
       autoCheck: true,
@@ -186,15 +197,9 @@ class UpdateConfig {
       canDownload: true,
     ),
     UpdateChannel.beta: UpdatePolicy(
-      autoCheck: false,
+      autoCheck: true,
       manualCheck: true,
-      canDownload: false,
-      includePrerelease: true,
-    ),
-    UpdateChannel.debug: UpdatePolicy(
-      autoCheck: false,
-      manualCheck: true,
-      canDownload: false,
+      canDownload: true,
       includePrerelease: true,
     ),
   };

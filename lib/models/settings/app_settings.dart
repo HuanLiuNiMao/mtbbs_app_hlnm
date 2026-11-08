@@ -600,11 +600,11 @@ class AdvancedSettings {
 
   /// 用户选择的更新渠道；空串 = 跟随构建（不覆盖构建期注入的渠道）。
   ///
-  /// 存 `release` / `beta` / `debug` 字符串而不是枚举，避免 models 层反向依赖
-  /// `config/update_config.dart`；解析统一走 `UpdateConfig.parseChannel`。
+  /// 存 `release` / `beta` 字符串而不是枚举，避免 models 层反向依赖
+  /// `config/update_config.dart`；解析统一走 `UpdateConfig.parseChannel`
+  /// （它同时兼容 `latest` / `prerelease` 与历史值 `debug`）。
   ///
-  /// 它只决定**检查哪个渠道的发布**，不改变本包的 applicationId——
-  /// beta 是独立包（`.beta` 后缀），切换渠道不会让正式版变成 beta 包。
+  /// 它只决定**检查哪一类发布**（Latest / Pre-release），不改 applicationId。
   final String updateChannel;
 
   const AdvancedSettings({
