@@ -298,8 +298,7 @@ class CommentFilterConfig {
         keywords: ((j['keywords'] as List<dynamic>?) ?? const [])
             .map((e) => e.toString())
             .toList(),
-        showBlockedPlaceholder:
-            (j['showBlockedPlaceholder'] as bool?) ?? false,
+        showBlockedPlaceholder: (j['showBlockedPlaceholder'] as bool?) ?? false,
       );
 }
 
@@ -466,6 +465,22 @@ const String kThreadScopeSearch = 'search';
 
 /// 帖子列表点标识：个人主页主题/回帖列表
 const String kThreadScopeUser = 'user';
+
+/// 列表点的显示名（设置页与列表页快捷面板共用一份，避免两处叫法漂移）。
+String threadScopeTitle(String scope) {
+  switch (scope) {
+    case kThreadScopeCommunity:
+      return '社区页（含标签页）';
+    case kThreadScopeGuide:
+      return '导读页';
+    case kThreadScopeSearch:
+      return '搜索结果页';
+    case kThreadScopeUser:
+      return '个人主页帖子列表';
+    default:
+      return scope;
+  }
+}
 
 /// 单个列表点的屏蔽配置：开关 + 黑/白名单模式 + 板块名单 + 标题关键词。
 ///

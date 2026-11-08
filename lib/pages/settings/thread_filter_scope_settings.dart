@@ -21,13 +21,8 @@ class ThreadFilterScopeSettingsPage extends StatelessWidget {
     kThreadScopeSearch,
     kThreadScopeUser,
   ];
-  /// 列表点显示名（顺序与 _scopes 一致）
-  static const List<String> _scopeTitles = [
-    '社区页（含标签页）',
-    '导读页',
-    '搜索结果页',
-    '个人主页帖子列表',
-  ];
+
+  /// 列表点说明（名称统一取自 [threadScopeTitle]，见 content_filter.dart）
   static const List<String> _scopeHints = [
     '社区版块页与版块标签页的帖子列表',
     '导读页（最新回复 / 精华等视图）',
@@ -43,7 +38,13 @@ class ThreadFilterScopeSettingsPage extends StatelessWidget {
       body: ListView(
         children: [
           for (var i = 0; i < _scopes.length; i++)
-            _buildScopeSection(context, s, _scopes[i], _scopeTitles[i], _scopeHints[i]),
+            _buildScopeSection(
+              context,
+              s,
+              _scopes[i],
+              threadScopeTitle(_scopes[i]),
+              _scopeHints[i],
+            ),
         ],
       ),
     );
@@ -68,15 +69,25 @@ class ThreadFilterScopeSettingsPage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text(hint, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text(
+                      hint,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
                   ],
                 ),
               ),
               Switch(
                 value: f.enabled,
-                onChanged: (v) => s.setThreadScopeFilter(scope, f.copyWith(enabled: v)),
+                onChanged: (v) =>
+                    s.setThreadScopeFilter(scope, f.copyWith(enabled: v)),
               ),
             ],
           ),
@@ -108,7 +119,10 @@ class ThreadFilterScopeSettingsPage extends StatelessWidget {
                 icon: Icons.flip,
                 label: '名单模式',
                 sub: f.modeBlock ? '当前：黑名单（命中隐藏）' : '当前：白名单（仅命中显示）',
-                onTap: () => s.setThreadScopeFilter(scope, f.copyWith(modeBlock: !f.modeBlock)),
+                onTap: () => s.setThreadScopeFilter(
+                  scope,
+                  f.copyWith(modeBlock: !f.modeBlock),
+                ),
               ),
             ],
           ),
