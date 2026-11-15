@@ -2,6 +2,7 @@ import 'package:sembast/sembast_io.dart';
 import 'package:mtbbs/core/app/app_paths.dart';
 import 'package:mtbbs/models/editor_snapshot.dart';
 import 'package:mtbbs/models/browse_record.dart';
+import 'package:mtbbs/models/read_later_item.dart';
 import 'package:mtbbs/core/utils/logger.dart';
 
 part 'database_helper_stores.dart';

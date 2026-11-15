@@ -13,6 +13,7 @@ import 'package:mtbbs/services/mt_image_hosting.dart';
 import 'package:mtbbs/widgets/bbcode/bbcode_controller.dart';
 import 'package:mtbbs/widgets/bbcode/post_html_widget.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
+import 'package:mtbbs/widgets/common/read_later_page_action.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';
 import 'package:mtbbs/widgets/editor/mini_editor_bar.dart';
@@ -322,6 +323,7 @@ class _WallPageState extends State<WallPage> {
 
   @override
   Widget build(BuildContext context) {
+    final routePath = '/user/${widget.uid}/wall';
     return Scaffold(
       appBar: AppBar(
         title: Text(_title),
@@ -331,6 +333,23 @@ class _WallPageState extends State<WallPage> {
             onRefresh: _loading ? null : _refresh,
             loading: _loading,
             copyLabel: '复制留言板链接',
+            extraItems: [
+              readLaterMenuItem(
+                inReadLater: isPageInReadLater(context, routePath),
+              ),
+            ],
+            onExtraSelected: (action) async {
+              if (action != 'read_later') return;
+              await togglePageReadLater(
+                context,
+                routePath: routePath,
+                title: _title,
+                url: _pageUrl,
+                subtitle: '留言板',
+                page: _page,
+              );
+              if (mounted) setState(() {});
+            },
           ),
         ],
       ),

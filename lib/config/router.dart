@@ -405,8 +405,10 @@ GoRouter buildRouter({
             pageBuilder: (_, state) {
               final type = state.uri.queryParameters['type'];
               final uid = state.uri.queryParameters['uid'];
+              final page =
+                  int.tryParse(state.uri.queryParameters['page'] ?? '') ?? 1;
               return NoTransitionPage(
-                child: MyThreadPage(type: type, uid: uid),
+                child: MyThreadPage(type: type, uid: uid, initialPage: page),
               );
             },
           ),

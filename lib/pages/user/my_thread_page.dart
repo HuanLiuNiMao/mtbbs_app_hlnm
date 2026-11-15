@@ -3,11 +3,13 @@ import 'package:provider/provider.dart';
 import 'package:mtbbs/controllers/thread_list_controller.dart';
 import 'package:mtbbs/widgets/thread/thread_grid.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
+import 'package:mtbbs/widgets/common/read_later_page_action.dart';
 import 'package:mtbbs/services/api_service.dart';
 import 'package:mtbbs/api/home/mythread/export.dart' as my_thread_api;
 import 'package:mtbbs/api/forum/viewthread/detail/export.dart' as detail_api;
 import 'package:mtbbs/models/thread_detail.dart';
 import 'package:mtbbs/providers/history_provider.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
 import 'package:mtbbs/auth/providers/auth_provider.dart';
 import 'package:mtbbs/models/browse_record.dart';
 import 'package:mtbbs/core/app/emoji_loader.dart';
@@ -21,7 +23,15 @@ class MyThreadPage extends StatefulWidget {
   /// 目标用户 UID，为空表示当前登录用户
   final String? uid;
 
-  const MyThreadPage({super.key, this.type, this.uid});
+  /// 初始页码（从「稍后再看」等入口带 `page=` 恢复阅读进度）
+  final int initialPage;
+
+  const MyThreadPage({
+    super.key,
+    this.type,
+    this.uid,
+    this.initialPage = 1,
+  });
 
   @override
   State<MyThreadPage> createState() => _MyThreadPageState();
@@ -53,6 +63,10 @@ class _MyThreadPageState extends State<MyThreadPage> {
       ),
     );
     _controller.addListener(_onControllerChanged);
+    // 恢复页码：直接进目标页，避免先闪烁一次第 1 页
+    if (widget.initialPage > 1) {
+      _controller.goToPage(widget.initialPage);
+    }
   }
 
   @override
@@ -90,22 +104,51 @@ class _MyThreadPageState extends State<MyThreadPage> {
         info: {'uid': uid, 'page': _controller.page, 'type': widget.type ?? ''},
       ),
     );
+    // 同步「稍后再看」的阅读进度（条目不存在时静默忽略）
+    context
+        .read<ReadLaterProvider>()
+        .markRead(readLaterPageId('/my-threads$queryString'), page: _controller.page);
   }
 
   @override
   Widget build(BuildContext context) {
     final uid = widget.uid ?? context.read<AuthProvider>().uid;
+    final queryParams = <String, String>{};
+    if (widget.type != null) queryParams['type'] = widget.type!;
+    if (widget.uid != null) queryParams['uid'] = widget.uid!;
+    final queryString = queryParams.isEmpty
+        ? ''
+        : '?${Uri(queryParameters: queryParams).query}';
+    final routePath = '/my-threads$queryString';
+    final url =
+        '${SiteStore.instance.baseUrl}/home.php?mod=space&do=thread'
+        '${(widget.uid ?? '').isEmpty ? '' : '&uid=${widget.uid}'}'
+        '${(widget.type ?? '').isEmpty ? '' : '&type=${widget.type}'}';
     return Scaffold(
       appBar: AppBar(
         title: Text(_title),
         actions: [
           PageActions(
-            url:
-                '${SiteStore.instance.baseUrl}/home.php?mod=space&do=thread'
-                '${(widget.uid ?? '').isEmpty ? '' : '&uid=${widget.uid}'}'
-                '${(widget.type ?? '').isEmpty ? '' : '&type=${widget.type}'}',
+            url: url,
             onRefresh: () => _controller.refresh(),
             copyLabel: '复制帖子列表链接',
+            extraItems: [
+              readLaterMenuItem(
+                inReadLater: isPageInReadLater(context, routePath),
+              ),
+            ],
+            onExtraSelected: (action) async {
+              if (action != 'read_later') return;
+              await togglePageReadLater(
+                context,
+                routePath: routePath,
+                title: _title,
+                url: url,
+                subtitle: widget.type == 'reply' ? '最近回复' : '我的帖子',
+                page: _controller.page,
+              );
+              if (mounted) setState(() {});
+            },
           ),
         ],
       ),

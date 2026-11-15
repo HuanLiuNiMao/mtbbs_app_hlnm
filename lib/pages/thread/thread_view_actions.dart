@@ -101,6 +101,8 @@ extension on _ThreadViewPageState {
   /// 记录帖子浏览历史（含当前页码）
   void _recordThreadHistory() {
     if (_data == null) return;
+    // 「稍后再看」是纯本地数据：跨站临时会话也要同步阅读进度
+    _syncReadLaterProgress();
     // 跨站点浏览不写历史：历史条目按"当前站点"归类，写进去后会指错站点
     if (_session.temporary) return;
     final host = _session.host;
@@ -123,6 +125,48 @@ extension on _ThreadViewPageState {
         },
       ),
     );
+  }
+
+  /// 加入 / 移出「稍后再看」（不受登录与跨站只读限制：纯本地数据）
+  void _toggleReadLater() {
+    final data = _data;
+    if (data == null) return;
+    final host = _session.host;
+    final id = ReadLaterItem.buildId(host, 'thread', widget.tid);
+    final provider = context.read<ReadLaterProvider>();
+    if (provider.contains(id)) {
+      provider.remove(id);
+      showToast('已移出稍后再看');
+    } else {
+      provider.add(
+        ReadLaterItem(
+          id: id,
+          host: host,
+          type: 'thread',
+          targetId: widget.tid,
+          routePath: '/thread/${widget.tid}',
+          title: data.title,
+          subtitle: data.mainPost?.username ?? '',
+          authorUid: data.mainPost?.uid ?? '',
+          url: '${_session.baseUrl}/forum.php?mod=viewthread&tid=${widget.tid}',
+          page: _currentPage,
+          addedAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      showToast('已加入稍后再看');
+    }
+    _setState(() {});
+  }
+
+  /// 打开帖子时回写「稍后再看」的阅读进度（条目不存在时静默忽略）
+  void _syncReadLaterProgress() {
+    context
+        .read<ReadLaterProvider>()
+        .markRead(
+          ReadLaterItem.buildId(_session.host, 'thread', widget.tid),
+          page: _currentPage,
+        );
   }
 
   void _showPostSource(PostItem post) {

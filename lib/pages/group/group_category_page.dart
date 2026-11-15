@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 import 'package:mtbbs/api/group/groupindex/export.dart' as group_api;
 import 'package:mtbbs/core/app/site_store.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/services/api_service.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
+import 'package:mtbbs/widgets/common/toast_utils.dart';
+import 'package:mtbbs/models/read_later_item.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
 import 'package:mtbbs/widgets/layout/page_error_widget.dart';
 import 'package:mtbbs/widgets/layout/pagination_bar.dart';
 import 'package:mtbbs/widgets/layout/state_views.dart';
@@ -81,12 +85,50 @@ class _GroupCategoryPageState extends State<GroupCategoryPage> {
     }
   }
 
+  /// 加入 / 移出「稍后再看」（圈子类型，纯本地）
+  void _toggleReadLater(String title) {
+    final host = SiteStore.instance.host;
+    final id = ReadLaterItem.buildId(host, 'group', widget.gid);
+    final provider = context.read<ReadLaterProvider>();
+    if (provider.contains(id)) {
+      provider.remove(id);
+      showToast('已移出稍后再看');
+    } else {
+      provider.add(
+        ReadLaterItem(
+          id: id,
+          host: host,
+          type: 'group',
+          targetId: widget.gid,
+          routePath:
+              '/groups/category?gid=${widget.gid}&name=${Uri.encodeQueryComponent(title)}',
+          title: title,
+          subtitle: '圈子',
+          url: '${SiteStore.instance.baseUrl}/group.php?gid=${widget.gid}',
+          addedAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      showToast('已加入稍后再看');
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final title = widget.name.isNotEmpty ? widget.name : '圈子分类';
+    final readLaterId = ReadLaterItem.buildId(
+      SiteStore.instance.host,
+      'group',
+      widget.gid,
+    );
+    final inReadLater = context
+        .watch<ReadLaterProvider>()
+        .contains(readLaterId);
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.name.isNotEmpty ? widget.name : '圈子分类'),
+        title: Text(title),
         surfaceTintColor: cs.surface,
         elevation: 0.5,
         actions: [
@@ -95,6 +137,26 @@ class _GroupCategoryPageState extends State<GroupCategoryPage> {
             onRefresh: () => _fetch(_page),
             loading: _loading,
             copyLabel: '复制分类链接',
+            extraItems: [
+              PopupMenuItem<String>(
+                value: 'read_later',
+                child: Row(
+                  children: [
+                    Icon(
+                      inReadLater
+                          ? Icons.bookmark_added_outlined
+                          : Icons.bookmark_add_outlined,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(inReadLater ? '移出稍后再看' : '稍后再看'),
+                  ],
+                ),
+              ),
+            ],
+            onExtraSelected: (action) {
+              if (action == 'read_later') _toggleReadLater(title);
+            },
           ),
         ],
       ),

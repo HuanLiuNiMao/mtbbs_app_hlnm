@@ -3,10 +3,22 @@ part of 'editor_page.dart';
 /// 变更跟踪与自动保存 — 内容监听、脏状态计算、预览防抖与快照落盘。
 extension on _EditorPageState {
   void _onContentChanged() {
-    _setState(() {});
-    _updateHasChanges();
-    _updateEmojiWarning();
-    _resetAutoSaveTimer();
+    // TextEditingController 在**选区变化**时也会 notifyListeners —— 拖拽选择手柄
+    // 时这里每帧都会被调到。若无条件 `_setState`，TextField 每帧都会拿到新的
+    // `contextMenuBuilder` 闭包，`EditableText.didUpdateWidget` 据此把选区 overlay
+    // dispose 再重建，手柄拖拽的手势随即被打断（安卓上表现为拖不动 / 抖动）。
+    // 因此只有文本真的变了才重建；选区变化只刷新预览高亮（防抖）。
+    final title = _session.titleCtl.text;
+    final content = _session.contentCtl.text;
+    final textChanged = content != _lastSeenText || title != _lastSeenTitle;
+    if (textChanged) {
+      _lastSeenTitle = title;
+      _setState(() {});
+      _updateHasChanges();
+      _updateEmojiWarning();
+      _resetAutoSaveTimer();
+    }
+    // 选区变化也要让预览高亮跟上（拖选时手柄位置由框架自己管）
     _schedulePreviewUpdate();
   }
 

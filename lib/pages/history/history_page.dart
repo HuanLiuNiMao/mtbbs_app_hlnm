@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:mtbbs/core/app/site_scope.dart';
 import 'package:mtbbs/core/app/site_store.dart';
 import 'package:mtbbs/providers/history_provider.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/models/browse_record.dart';
+import 'package:mtbbs/models/read_later_item.dart';
 import 'package:mtbbs/core/utils/formatters.dart';
 import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 import 'package:mtbbs/widgets/layout/state_views.dart';
@@ -13,7 +15,8 @@ import 'package:mtbbs/widgets/layout/state_views.dart';
 /// 浏览历史记录页面
 ///
 /// 默认展示**全部站点**的记录，可按站点筛选；支持按类型过滤（全部/帖子/用户/我的帖子/回复），
-/// 点击查看详情，滑动删除。
+/// 第一个「稍后再看」Tab 展示本地书签（不按类型再分类），点击条目先看信息再决定查看/删除；
+/// 默认落在第二个「全部」Tab。
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key});
 
@@ -28,7 +31,7 @@ class _HistoryPageState extends State<HistoryPage>
   /// 站点筛选：null = 全部站点；否则为目标站点 host
   String? _siteFilter;
 
-  static const _tabs = ['全部', '帖子', '用户', '我的帖子', '回复'];
+  static const _tabs = ['稍后再看', '全部', '帖子', '用户', '我的帖子', '回复'];
 
   /// 支持带 `site=` 在 App 内打开的页面类型。
   ///
@@ -39,24 +42,36 @@ class _HistoryPageState extends State<HistoryPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(
+      length: _tabs.length,
+      vsync: this,
+      // 默认选中「全部」（稍后再看在第一个，但不作为默认落点）
+      initialIndex: 1,
+    )..addListener(_onTabChanged);
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
   }
 
+  /// Tab 切换会影响「清除已读」是否显示，需要重建右上角菜单
+  void _onTabChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   String _typeForIndex(int index) {
     switch (index) {
-      case 1:
-        return 'thread';
       case 2:
-        return 'user';
+        return 'thread';
       case 3:
-        return 'mythread';
+        return 'user';
       case 4:
+        return 'mythread';
+      case 5:
         return 'reply';
       default:
         return '';
@@ -65,28 +80,69 @@ class _HistoryPageState extends State<HistoryPage>
 
   Future<void> _confirmClear(BuildContext context, int tabIndex) async {
     final history = context.read<HistoryProvider>();
-    final type = _typeForIndex(tabIndex);
-    final label = _tabs[tabIndex];
+    final readLater = context.read<ReadLaterProvider>();
+    final isReadLater = tabIndex == 0;
+    final type = isReadLater ? '' : _typeForIndex(tabIndex);
+    final label = isReadLater ? '稍后再看' : _tabs[tabIndex];
     final scopeLabel = _siteFilter == null
         ? '全部站点'
         : history.siteLabel(_siteFilter!);
     final confirmed = await showConfirmDialog(
       context,
-      title: '清空记录',
+      title: isReadLater ? '清空稍后再看' : '清空记录',
       message: _siteFilter == null
-          ? '确定清空「全部站点 · $label」的浏览记录吗？会删除所有站点的同类记录，且不可恢复。'
-          : '确定清空「$scopeLabel · $label」的浏览记录吗？',
+          ? '确定清空「全部站点 · $label」的${isReadLater ? '内容' : '浏览记录'}吗？会删除所有站点的同类条目，且不可恢复。'
+          : '确定清空「$scopeLabel · $label」的${isReadLater ? '内容' : '浏览记录'}吗？',
       confirmText: '清空',
       maxWidth: 400,
     );
-    if (confirmed == true && context.mounted) {
+    if (confirmed != true || !context.mounted) return;
+    if (isReadLater) {
+      await readLater.clearFiltered(host: _siteFilter);
+    } else {
       await history.clearFiltered(host: _siteFilter, type: type);
-      // 该站点已无任何记录时自动回到「全部站点」，避免停在空列表
-      if (mounted &&
-          _siteFilter != null &&
-          !history.recordHosts.contains(_siteFilter)) {
-        setState(() => _siteFilter = null);
-      }
+    }
+    // 该站点已无任何条目时自动回到「全部站点」，避免停在空列表
+    if (mounted &&
+        _siteFilter != null &&
+        !_allHosts(history, readLater).contains(_siteFilter)) {
+      setState(() => _siteFilter = null);
+    }
+  }
+
+  /// 站点筛选菜单与"清空后回落"共用的 host 列表（浏览记录 + 稍后再看）
+  List<String> _allHosts(HistoryProvider history, ReadLaterProvider readLater) {
+    final seen = <String>{};
+    final hosts = <String>[];
+    for (final host in [...history.recordHosts, ...readLater.hosts]) {
+      if (seen.add(host)) hosts.add(host);
+    }
+    return hosts;
+  }
+
+  /// 清除稍后再看里的已读条目（未读不受影响）
+  Future<void> _confirmClearRead() async {
+    final readLater = context.read<ReadLaterProvider>();
+    final readCount = readLater
+        .items(host: _siteFilter)
+        .where((i) => i.read)
+        .length;
+    if (readCount == 0) return;
+    final scope = _siteFilter == null
+        ? '全部站点'
+        : readLater.siteLabel(_siteFilter!);
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '清除已读',
+      message: '确定清除「$scope」稍后再看里的 $readCount 条已读内容吗？未读条目会保留。',
+      confirmText: '清除',
+    );
+    if (confirmed != true || !mounted) return;
+    await readLater.clearRead(host: _siteFilter);
+    if (mounted &&
+        _siteFilter != null &&
+        !readLater.hosts.contains(_siteFilter)) {
+      setState(() => _siteFilter = null);
     }
   }
 
@@ -98,10 +154,19 @@ class _HistoryPageState extends State<HistoryPage>
     );
   }
 
+  /// 稍后再看：先展示信息，再由用户决定查看或删除
+  void _showReadLaterDetail(ReadLaterItem item) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => _ReadLaterDetailSheet(item: item),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final history = context.watch<HistoryProvider>();
+    final readLater = context.watch<ReadLaterProvider>();
 
     return Scaffold(
       appBar: AppBar(
@@ -122,6 +187,9 @@ class _HistoryPageState extends State<HistoryPage>
             labelPadding: const EdgeInsets.symmetric(horizontal: 12),
             indicatorPadding: EdgeInsets.zero,
             tabs: [
+              Tab(
+                text: '稍后再看 (${readLater.count(host: _siteFilter)})',
+              ),
               Tab(text: '全部 (${history.count(host: _siteFilter)})'),
               Tab(
                 text: '帖子 (${history.count(type: 'thread', host: _siteFilter)})',
@@ -153,12 +221,14 @@ class _HistoryPageState extends State<HistoryPage>
             onSelected: (v) =>
                 setState(() => _siteFilter = v.isEmpty ? null : v),
             itemBuilder: (_) {
-              final hosts = history.recordHosts;
+              final hosts = _allHosts(history, readLater);
               return [
                 CheckedPopupMenuItem<String>(
                   value: '',
                   checked: _siteFilter == null,
-                  child: Text('全部站点 (${history.count()})'),
+                  child: Text(
+                    '全部站点 (${history.count() + readLater.count()})',
+                  ),
                 ),
                 if (hosts.isNotEmpty) const PopupMenuDivider(),
                 for (final host in hosts)
@@ -166,7 +236,7 @@ class _HistoryPageState extends State<HistoryPage>
                     value: host,
                     checked: _siteFilter == host,
                     child: Text(
-                      '${history.siteLabel(host)} (${history.count(host: host)})',
+                      '${history.siteLabel(host)} (${history.count(host: host) + readLater.count(host: host)})',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -178,9 +248,25 @@ class _HistoryPageState extends State<HistoryPage>
             icon: const Icon(Icons.more_vert, size: 20),
             padding: EdgeInsets.zero,
             onSelected: (v) {
-              if (v == 'clear') _confirmClear(context, _tabController.index);
+              if (v == 'clear') {
+                _confirmClear(context, _tabController.index);
+              } else if (v == 'clear_read') {
+                _confirmClearRead();
+              }
             },
             itemBuilder: (_) => [
+              if (_tabController.index == 0) ...[
+                PopupMenuItem(
+                  value: 'clear_read',
+                  enabled: readLater
+                      .items(host: _siteFilter)
+                      .any((i) => i.read),
+                  child: Text(
+                    '清除已读（${readLater.items(host: _siteFilter).where((i) => i.read).length}）',
+                  ),
+                ),
+                const PopupMenuDivider(),
+              ],
               PopupMenuItem(
                 value: 'clear',
                 child: Text(
@@ -196,6 +282,10 @@ class _HistoryPageState extends State<HistoryPage>
       body: TabBarView(
         controller: _tabController,
         children: [
+          _ReadLaterList(
+            host: _siteFilter,
+            onShowDetail: _showReadLaterDetail,
+          ),
           _RecordList(type: '', host: _siteFilter, onShowDetail: _showDetail),
           _RecordList(
             type: 'thread',
@@ -497,6 +587,249 @@ class _RecordList extends StatelessWidget {
           onTap: () => onShowDetail(record),
         );
       },
+    );
+  }
+}
+
+// ==================== 稍后再看 ====================
+
+/// 稍后再看列表（历史页第 6 个 Tab，不按类型再分类）
+class _ReadLaterList extends StatelessWidget {
+  /// 站点筛选：null = 全部站点
+  final String? host;
+
+  final void Function(ReadLaterItem) onShowDetail;
+
+  const _ReadLaterList({this.host, required this.onShowDetail});
+
+  static IconData _typeIcon(String type) => switch (type) {
+    'thread' => Icons.article_outlined,
+    'user' => Icons.person_outline,
+    'forum' => Icons.forum_outlined,
+    'group' => Icons.groups_outlined,
+    'page' => Icons.link_outlined,
+    _ => Icons.bookmark_border,
+  };
+
+  static String _typeLabel(String type) => switch (type) {
+    'thread' => '帖子',
+    'user' => '空间',
+    'forum' => '版块',
+    'group' => '圈子',
+    'page' => '页面',
+    _ => type,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final readLater = context.watch<ReadLaterProvider>();
+    final items = readLater.items(host: host);
+
+    if (items.isEmpty) {
+      return const EmptyView(
+        icon: Icons.bookmarks_outlined,
+        text: '暂无稍后再看内容\n在帖子、用户空间、版块或圈子页的菜单里加入',
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      itemCount: items.length,
+      separatorBuilder: (_, __) =>
+          Divider(height: 1, indent: 56, color: cs.outlineVariant),
+      itemBuilder: (context, index) {
+        final item = items[index];
+        final subtitleParts = <String>[
+          item.read ? '已读' : '未读',
+          _typeLabel(item.type),
+          if (host == null && item.host.isNotEmpty)
+            readLater.siteLabel(item.host),
+          if (item.type == 'thread' || item.page > 1) '第 ${item.page} 页',
+          formatRelativeTime(item.addedAt),
+        ];
+        return ListTile(
+          leading: CircleAvatar(
+            backgroundColor: cs.onSurfaceVariant.withValues(alpha: 0.1),
+            child: Icon(
+              _typeIcon(item.type),
+              color: item.read
+                  ? cs.onSurfaceVariant.withValues(alpha: 0.55)
+                  : cs.onSurfaceVariant,
+              size: 20,
+            ),
+          ),
+          title: Text(
+            item.title.isEmpty ? '（无标题）' : item.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            // 已读条目整体降饱和，和未读一眼分开
+            style: TextStyle(
+              fontSize: 14,
+              color: item.read ? cs.onSurfaceVariant : null,
+            ),
+          ),
+          subtitle: Text(
+            subtitleParts.join(' · '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+          ),
+          trailing: item.read
+              ? Icon(Icons.chevron_right, size: 18, color: cs.onSurfaceVariant)
+              : Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: cs.primary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+          onTap: () => onShowDetail(item),
+        );
+      },
+    );
+  }
+}
+
+/// 稍后再看详情弹窗：先看信息，再决定「前往查看」或「删除」
+class _ReadLaterDetailSheet extends StatelessWidget {
+  final ReadLaterItem item;
+  const _ReadLaterDetailSheet({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final readLater = context.read<ReadLaterProvider>();
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '稍后再看详情',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Flexible(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              children: [
+                _infoRow(context, '标题', item.title.isEmpty ? '（无标题）' : item.title),
+                _infoRow(
+                  context,
+                  '类型',
+                  _ReadLaterList._typeLabel(item.type),
+                ),
+                if (item.host.isNotEmpty)
+                  _infoRow(context, '站点', readLater.siteLabel(item.host)),
+                _infoRow(context, '路由', item.routePath),
+                _infoRow(
+                  context,
+                  '加入时间',
+                  formatDateTimeFull(item.addedAt),
+                ),
+                _infoRow(
+                  context,
+                  '状态',
+                  item.read ? '已读' : '未读',
+                ),
+                if (item.type == 'thread' || item.page > 1)
+                  _infoRow(context, '阅读进度', '第 ${item.page} 页'),
+                if (item.url.isNotEmpty) _infoRow(context, '链接', item.url),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      readLater.remove(item.id);
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('删除'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: cs.error,
+                      side: BorderSide(color: cs.error),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _open(context),
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('前往查看'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 置已读后按站点规则打开（跨站仅帖子/空间支持）
+  void _open(BuildContext context) {
+    final readLater = context.read<ReadLaterProvider>();
+    readLater.markRead(item.id);
+    final host = item.host;
+    final foreign = host.isNotEmpty && host != SiteStore.instance.host;
+    final canOpen = !foreign || const {'thread', 'user'}.contains(item.type);
+    final router = GoRouter.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pop();
+    if (!canOpen) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('该条目来自其它站点，暂不支持跨站打开')),
+      );
+      return;
+    }
+    var path = item.routePath;
+    if (item.page > 1) {
+      path = '$path${path.contains('?') ? '&' : '?'}page=${item.page}';
+    }
+    router.push(foreign ? withSiteParam(path, host) : path);
+  }
+
+  Widget _infoRow(BuildContext context, String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 64,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
+            ),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+        ],
+      ),
     );
   }
 }

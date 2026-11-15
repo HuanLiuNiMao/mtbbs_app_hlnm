@@ -7,6 +7,9 @@ import 'package:mtbbs/services/api_service.dart';
 import 'package:mtbbs/controllers/thread_list_controller.dart';
 import 'package:mtbbs/widgets/thread/thread_grid.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
+import 'package:mtbbs/widgets/common/toast_utils.dart';
+import 'package:mtbbs/models/read_later_item.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
 import 'package:mtbbs/widgets/layout/tab_page_layout.dart';
 
 /// 版块页面
@@ -225,6 +228,41 @@ class _CommunityPageState extends State<CommunityPage> {
     );
   }
 
+  /// 加入 / 移出「稍后再看」：版块记 `forum`，圈子讨论区（只读）记 `group`
+  void _toggleReadLater(String title) {
+    final fid = widget.fid;
+    if (fid.isEmpty) return;
+    final host = SiteStore.instance.host;
+    final type = widget.readOnly ? 'group' : 'forum';
+    final id = ReadLaterItem.buildId(host, type, fid);
+    final provider = context.read<ReadLaterProvider>();
+    if (provider.contains(id)) {
+      provider.remove(id);
+      showToast('已移出稍后再看');
+    } else {
+      provider.add(
+        ReadLaterItem(
+          id: id,
+          host: host,
+          type: type,
+          targetId: fid,
+          routePath: widget.readOnly
+              ? '/groups/content?gid=$fid&name=${Uri.encodeQueryComponent(title)}'
+              : '/forum?fid=$fid',
+          title: title,
+          subtitle: widget.readOnly ? '圈子' : '版块',
+          url: widget.readOnly
+              ? '${SiteStore.instance.baseUrl}/group.php?gid=$fid'
+              : '${SiteStore.instance.baseUrl}/forum.php?mod=forumdisplay&fid=$fid',
+          addedAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      showToast('已加入稍后再看');
+    }
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     // 监听 SiteStore 变化（如论坛列表加载完成后重建标签页）
@@ -239,6 +277,14 @@ class _CommunityPageState extends State<CommunityPage> {
           ? widget.title
           : (SiteStore.instance.forums[widget.fid] ??
                 (widget.readOnly ? '圈子' : '未知板块（${widget.fid}）'));
+      final readLaterId = ReadLaterItem.buildId(
+        SiteStore.instance.host,
+        widget.readOnly ? 'group' : 'forum',
+        widget.fid,
+      );
+      final inReadLater = context
+          .watch<ReadLaterProvider>()
+          .contains(readLaterId);
       return Scaffold(
         appBar: AppBar(
           title: Text(title),
@@ -250,6 +296,26 @@ class _CommunityPageState extends State<CommunityPage> {
                   '${SiteStore.instance.baseUrl}/forum.php?mod=forumdisplay&fid=${widget.fid}',
               onRefresh: ctrl != null ? () => ctrl.refresh() : null,
               copyLabel: '复制版块链接',
+              extraItems: [
+                PopupMenuItem<String>(
+                  value: 'read_later',
+                  child: Row(
+                    children: [
+                      Icon(
+                        inReadLater
+                            ? Icons.bookmark_added_outlined
+                            : Icons.bookmark_add_outlined,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(inReadLater ? '移出稍后再看' : '稍后再看'),
+                    ],
+                  ),
+                ),
+              ],
+              onExtraSelected: (action) {
+                if (action == 'read_later') _toggleReadLater(title);
+              },
             ),
             IconButton(
               icon: const Icon(Icons.filter_list, size: 20),

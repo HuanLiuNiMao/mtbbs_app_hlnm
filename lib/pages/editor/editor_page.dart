@@ -145,6 +145,10 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
 
   String _lastSeenText = '';
 
+  /// 上一次"文本变化"时看到的标题。与 [_lastSeenText] 配合，用于在
+  /// `_onContentChanged` 里区分"文本变了"和"只是选区变了"（见该处注释）。
+  String _lastSeenTitle = '';
+
   Timer? _gutterMeasureDebounce;
   bool _gutterMeasureScheduled = false;
 
@@ -285,6 +289,7 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     // 光标/选区变化 → 更新标记槽与（必要时）预览定位
     _session.contentCtl.addListener(_onEditingChanged);
     _lastSeenText = _session.contentCtl.text;
+    _lastSeenTitle = _session.titleCtl.text;
     _anchors = bbAnchors(_lastSeenText);
 
     _doFetchPage();

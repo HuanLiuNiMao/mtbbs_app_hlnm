@@ -18,6 +18,8 @@ import 'package:mtbbs/models/user_profile.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/models/browse_record.dart';
 import 'package:mtbbs/providers/history_provider.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
+import 'package:mtbbs/models/read_later_item.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';
 import 'package:mtbbs/widgets/common/pie_chart.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
@@ -142,6 +144,39 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   int? get _uidNum => int.tryParse(widget.uid);
 
+  String get _readLaterId =>
+      ReadLaterItem.buildId(_session.host, 'user', widget.uid);
+
+  bool get _inReadLater =>
+      context.read<ReadLaterProvider>().contains(_readLaterId);
+
+  /// 加入 / 移出「稍后再看」（纯本地，无需登录）
+  void _toggleReadLater() {
+    final provider = context.read<ReadLaterProvider>();
+    if (provider.contains(_readLaterId)) {
+      provider.remove(_readLaterId);
+      showToast('已移出稍后再看');
+    } else {
+      provider.add(
+        ReadLaterItem(
+          id: _readLaterId,
+          host: _session.host,
+          type: 'user',
+          targetId: widget.uid,
+          routePath: '/user/${widget.uid}',
+          title: _profile?['nickname']?.toString() ?? widget.uid,
+          subtitle: '用户空间',
+          url:
+              '${_session.baseUrl}/home.php?mod=space&uid=${widget.uid}&do=profile&from=space',
+          addedAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      showToast('已加入稍后再看');
+    }
+    if (mounted) setState(() {});
+  }
+
   void _navigateToUid(int uid) =>
       GoRouter.of(context).replace(SiteScope.pathFor(context, '/user/$uid'));
 
@@ -234,6 +269,22 @@ class _UserProfilePageState extends State<UserProfilePage> {
             loading: _loading,
             copyLabel: '复制个人主页链接',
             extraItems: [
+              PopupMenuItem<String>(
+                value: 'read_later',
+                child: Row(
+                  children: [
+                    Icon(
+                      _inReadLater
+                          ? Icons.bookmark_added_outlined
+                          : Icons.bookmark_add_outlined,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(_inReadLater ? '移出稍后再看' : '稍后再看'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               // 生成分享图（与帖子/评论同一套：预览 → 截图保存）
               if (AppCapabilities.isAvailable(AppCapability.saveImage)) ...[
                 PopupMenuItem<String>(
@@ -306,6 +357,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
             ],
             onExtraSelected: (action) {
               switch (action) {
+                case 'read_later':
+                  _toggleReadLater();
                 case 'save_image':
                   _shareImage();
                 case 'src_follow':

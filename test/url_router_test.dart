@@ -283,6 +283,24 @@ void main() {
     });
   });
 
+  group('looksLikeUrl - 链接判定口径', () {
+    test('完整 URL / 裸域名 / 站内相对路径都算链接', () {
+      expect(UrlRouter.looksLikeUrl('https://bbs.binmt.cc/thread-1-1-1.html'), isTrue);
+      expect(UrlRouter.looksLikeUrl('bbs.binmt.cc'), isTrue);
+      expect(UrlRouter.looksLikeUrl('forum.php?mod=viewthread&tid=1'), isTrue);
+      expect(UrlRouter.looksLikeUrl('thread-1-1-1.html'), isTrue);
+      expect(UrlRouter.looksLikeUrl('home.php?mod=space'), isTrue);
+      expect(UrlRouter.looksLikeUrl('space-uid-100.html'), isTrue);
+    });
+
+    test('普通关键词 / 空白不算链接', () {
+      expect(UrlRouter.looksLikeUrl(''), isFalse);
+      expect(UrlRouter.looksLikeUrl('   '), isFalse);
+      expect(UrlRouter.looksLikeUrl('逆向'), isFalse);
+      expect(UrlRouter.looksLikeUrl('mt 管理器 教程'), isFalse);
+    });
+  });
+
   group('resolveTarget - 唯一决策点', () {
     test('本站可映射链接 → App 内路径', () {
       expect(

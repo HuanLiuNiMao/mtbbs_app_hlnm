@@ -43,6 +43,8 @@ import 'package:mtbbs/providers/editor_history_provider.dart';
 import 'package:mtbbs/widgets/editor/mini_editor_bar.dart';
 import 'package:mtbbs/widgets/editor/captcha_field.dart';
 import 'package:mtbbs/providers/history_provider.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
+import 'package:mtbbs/models/read_later_item.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/auth/providers/auth_provider.dart';
 import 'package:mtbbs/core/utils/screen_size_ext.dart';
@@ -361,7 +363,29 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
                 ];
               }
               final tidNum = int.tryParse(widget.tid);
+              final inReadLater = context
+                  .read<ReadLaterProvider>()
+                  .contains('${_session.host}:thread:${widget.tid}');
               return <PopupMenuEntry<String>>[
+                PopupMenuItem<String>(
+                  value: 'read_later',
+                  enabled: _data != null,
+                  child: Row(
+                    children: [
+                      Icon(
+                        inReadLater
+                            ? Icons.bookmark_added_outlined
+                            : Icons.bookmark_add_outlined,
+                        size: 18,
+                        color: _data != null
+                            ? null
+                            : Theme.of(context).disabledColor,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(inReadLater ? '移出稍后再看' : '稍后再看'),
+                    ],
+                  ),
+                ),
                 PopupMenuItem<String>(
                   value: 'view_cache',
                   child: Row(
@@ -442,6 +466,9 @@ class _ThreadViewPageState extends State<ThreadViewPage> {
                 return;
               }
               switch (action) {
+                case 'read_later':
+                  _toggleReadLater();
+                  return;
                 case 'view_cache':
                   _handleViewCached();
                   return;

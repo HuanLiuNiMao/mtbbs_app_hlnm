@@ -56,11 +56,12 @@ extension on _ThreadViewPageState {
       _liked = d.mainPost?.isLiked ?? false;
 
       final title = d.title.isNotEmpty ? d.title : '帖子${widget.tid}';
-      _recordThreadHistory();
 
       _commentPages[1] = List<PostItem>.from(d.posts);
       _currentPage = targetPage.clamp(1, _totalPages);
       _mainPostLoaded = _currentPage == 1;
+      // 页码确定后再记录：初始进入非第 1 页时，历史与「稍后再看」都要落正确页码
+      _recordThreadHistory();
 
       // 新帖自动缓存：不 await，缓存 IO 不阻塞渲染
       _writeAutoCache(d);
@@ -120,7 +121,11 @@ extension on _ThreadViewPageState {
       final oldTotalPages = _totalPages;
       final actualPage = data.currentPage;
       _commentPages[actualPage] = List<PostItem>.from(data.posts);
-      if (switchPage) _currentPage = actualPage;
+      if (switchPage) {
+        _currentPage = actualPage;
+        // 任意翻页路径（上下页 / 跳页 / 楼层跳转）都在页码落地后同步进度
+        _syncReadLaterProgress();
+      }
       AppLogger.i(
         'PAGE',
         'loaded comment page $actualPage (${data.posts.length} posts), '

@@ -104,6 +104,35 @@ extension DatabaseHelperRecords on DatabaseHelper {
     }
   }
 
+  // =================== 稍后再看 ===================
+
+  Future<List<ReadLaterItem>> getAllReadLater() async {
+    final db = await database;
+    final records = await _readLaterStore.find(
+      db,
+      finder: Finder(sortOrders: [SortOrder('addedAt', false)]),
+    );
+    return records.map((r) => ReadLaterItem.fromJson(r.value)).toList();
+  }
+
+  Future<void> upsertReadLater(ReadLaterItem item) async {
+    final db = await database;
+    await _readLaterStore.record(item.id).put(db, item.toJson());
+  }
+
+  Future<void> deleteReadLater(String id) async {
+    final db = await database;
+    await _readLaterStore.record(id).delete(db);
+  }
+
+  Future<void> deleteReadLaterMany(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    for (final id in ids) {
+      await _readLaterStore.record(id).delete(db);
+    }
+  }
+
   // =================== 搜索历史 ===================
 
   Future<List<RecordSnapshot<int, Map<String, dynamic>>>>
