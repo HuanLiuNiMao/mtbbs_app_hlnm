@@ -50,3 +50,7 @@ app.*.map.json
 /mtbbs_release.json
 /android/app/key.jks
 /android/key.properties
+
+# 本地凭据（PAT / 临时令牌），永远不要提交
+.gh_token
+*.token
