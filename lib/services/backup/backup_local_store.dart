@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:mtbbs/core/app/app_paths.dart';
 import 'package:mtbbs/core/utils/logger.dart';
-import 'package:mtbbs/models/settings/backup_settings.dart';
 import 'package:path/path.dart' as p;
 
 /// 本地备份文件的落地与轮转。

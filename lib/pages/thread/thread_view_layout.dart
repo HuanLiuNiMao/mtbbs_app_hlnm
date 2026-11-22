@@ -262,7 +262,12 @@ extension on _ThreadViewPageState {
           onToggleOnlyOpAuthor: _isCacheMode ? null : _toggleOnlyOpAuthor,
         ),
         const Divider(height: 1),
-        Expanded(child: SingleChildScrollView(child: _buildCommentContent())),
+        Expanded(
+          child: SingleChildScrollView(
+            controller: _commentScrollController,
+            child: _buildCommentContent(),
+          ),
+        ),
       ],
     );
   }

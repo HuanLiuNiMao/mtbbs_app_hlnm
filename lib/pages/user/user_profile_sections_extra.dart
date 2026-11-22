@@ -43,8 +43,7 @@ extension on _UserProfilePageState {
       final isSelf =
           !_session.temporary &&
           (widget.uid == 'self' ||
-              context.select<AuthProvider, String>((a) => a.uid) ==
-                  widget.uid);
+              context.select<AuthProvider, String>((a) => a.uid) == widget.uid);
 
       add(
         '积分',
@@ -162,11 +161,18 @@ extension on _UserProfilePageState {
   /// 私信 —— 置于头部右侧空白区（人气/关注/粉丝已并入下方统计瓦片）。
   ///
   /// 人气为移动独有（已并入瓦片）；私信仅他人视角（自己主页入口在「我的」页）。
+  /// 关注/已关注：他人视角提供，文案随状态切换（Discuz 原名「收听」）。
   List<Widget> _headerActions() {
     if (widget.uid.isEmpty) return const [];
     final isSelf =
         !_session.temporary &&
         (context.select<AuthProvider, String>((a) => a.uid) == widget.uid);
+    // 关注态有两套来源（见 docs/12 §8.3）：
+    // - 本仓库 `_isFollowing`（`parseFollowStatus` 读 `#followmod`，最准）
+    // - 上游 `_profile['followed']`（`parseFollowState` 读 `#followflag` 等形态）
+    // 前者为 null（模板没给按钮）时回退后者，避免整块消失。
+    final followedNow = _isFollowing ?? (_profile!['followed'] as bool?);
+    final followBusy = _followLoading;
 
     return [
       _actionItem(
@@ -204,13 +210,11 @@ extension on _UserProfilePageState {
       // 因此这里只要求 uid 可用。
       if (!isSelf && _uidNum != null)
         _actionItem(
-          icon: _isFollowing == true
+          icon: followedNow == true
               ? Icons.person_remove_outlined
               : Icons.person_add_alt_1_outlined,
-          label: _followLoading
-              ? '处理中…'
-              : (_isFollowing == true ? '已收听' : '收听TA'),
-          onTap: _followLoading
+          label: followBusy ? '处理中…' : (followedNow == true ? '已关注' : '关注'),
+          onTap: followBusy
               ? null
               : () {
                   if (_guardReadOnly()) return;
@@ -329,11 +333,10 @@ extension on _UserProfilePageState {
           if (_showRawSignature)
             SelectableText(
               sig,
-              style: TextStyle(
+              style: context.appTypography.mono.copyWith(
                 fontSize: 11,
                 color: _cs.onSurfaceVariant,
                 height: 1.5,
-                fontFamily: 'monospace',
               ),
             )
           else

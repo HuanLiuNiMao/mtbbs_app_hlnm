@@ -1,8 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:mtbbs/core/app/site_scope.dart';
+import 'package:mtbbs/core/app/site_session.dart';
 import 'package:mtbbs/core/app/site_store.dart';
 import 'package:mtbbs/core/parser/bbcode_list_edit.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
@@ -82,6 +85,26 @@ double? _fontSizeOf(String s) {
     if (rich.text.toPlainText().contains(s)) {
       return rich.text.style?.fontSize;
     }
+  }
+  return null;
+}
+
+/// 取「包含指定文本」的 TextSpan（用于检查行内片段自身的样式）
+TextSpan? _spanOf(String s) {
+  TextSpan? search(InlineSpan span) {
+    if (span is! TextSpan) return null;
+    if ((span.text ?? '').contains(s)) return span;
+    for (final c in span.children ?? const <InlineSpan>[]) {
+      final r = search(c);
+      if (r != null) return r;
+    }
+    return null;
+  }
+
+  for (final el in find.byType(RichText).evaluate()) {
+    final rich = el.widget as RichText;
+    final r = search(rich.text);
+    if (r != null) return r;
   }
   return null;
 }
@@ -216,6 +239,50 @@ void main() {
       print('    │  HtmlTable size=$tableSize');
       expect(tableSize.width, greaterThan(0));
       expect(tableSize.height, greaterThan(0));
+    });
+
+    testWidgets('表格宽度随内容自适应：内容短且列均衡时占满，列内容悬殊时收缩', (tester) async {
+      // 短内容、列内容量相近 → 占满正文宽度，避免缩成一条
+      await tester.pumpWidget(
+        _post('[table][tr][td]是[/td][td]否[/td][/tr][/table]'),
+      );
+      await _settle(tester);
+      expect(tester.getSize(find.byType(HtmlTable)).width, closeTo(800, 1));
+
+      // `#` 列内容极少、说明列较长 → 不撑满（撑满会让 `#` 列被平分得过宽）
+      await tester.pumpWidget(
+        _post(
+          '[table][tr][td]#[/td][td]组件[/td]'
+          '[td]说明说明说明说明说明说明说明说明[/td][/tr][/table]',
+        ),
+      );
+      await _settle(tester);
+      expect(tester.getSize(find.byType(HtmlTable)).width, lessThan(800));
+    });
+
+    testWidgets('多列长内容表格不超出可用宽度（宽屏左栏场景）', (tester) async {
+      // 真实案例：5 列 + 长备注，内容自然宽度远大于宽屏左栏（左栏只有窗口的 3/5）。
+      // 表格必须按左栏可用宽度换行，而不是按内容宽度溢出到评论栏。
+      const bbcode =
+          '[table]'
+          '[tr][td]网盘名称[/td][td]官方网址[/td][td]必须登录下载[/td]'
+          '[td]非会员限速[/td][td]备注说明[/td][/tr]'
+          '[tr][td]小飞机网盘[/td][td]https://www.feejii.com/[/td][td]否[/td]'
+          '[td]全程不限速[/td]'
+          '[td]论坛签约合作网盘，用户可通过专属通道免费扩容至 1TB，'
+          '支持大文件稳定传输[/td][/tr]'
+          '[/table]';
+      await tester.pumpWidget(
+        _wrap(
+          const SizedBox(
+            width: 560,
+            child: PostHtmlWidget(bbcode: bbcode, fontSize: 16),
+          ),
+        ),
+      );
+      await _settle(tester);
+      expect(tester.getSize(find.byType(HtmlTable)).width, closeTo(560, 1));
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('表格嵌套表格 + 双层 code', (tester) async {
@@ -680,6 +747,37 @@ void main() {
         find.textContaining(r'\badmacro', findRichText: true),
         findsOneWidget,
       );
+    });
+  });
+
+  group('⑮ 行内代码（[md] 反引号）', () {
+    testWidgets('行内代码带主题等宽字体 + 淡底，可与正文区分', (tester) async {
+      // [md] 只在 52pojie 解析；用跨站会话模拟该站点
+      final session = FixedSiteSession(
+        host: 'www.52pojie.cn',
+        baseUrl: 'https://www.52pojie.cn',
+        charset: 'utf-8',
+        accountName: null,
+        uid: '',
+        username: '',
+        dio: Dio(),
+      );
+      await tester.pumpWidget(
+        SiteScope(
+          session: session,
+          child: _post('[md]正文前 `inline_code` 正文后[/md]'),
+        ),
+      );
+      await _settle(tester);
+
+      final span = _spanOf('inline_code');
+      expect(span, isNotNull);
+      // 底色（flutter_widget_from_html 的行内 background-color 落在
+      // TextStyle.background 上）——没有它时行内代码与正文无法区分。
+      expect(span!.style?.background, isNotNull);
+      // 字体不能停在 Courier/monospace 别名：Windows 无此字体族会退成比例字体
+      expect(span.style?.fontFamily, isNotNull);
+      expect(span.style?.fontFamily, isNot('Courier'));
     });
   });
 }

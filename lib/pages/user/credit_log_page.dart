@@ -8,6 +8,7 @@ import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/core/utils/url_router.dart';
 import 'package:mtbbs/services/api_service.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
+import 'package:mtbbs/widgets/common/read_later_page_action.dart';
 import 'package:mtbbs/widgets/layout/load_more_footer.dart';
 import 'package:mtbbs/widgets/layout/page_error_widget.dart';
 import 'package:mtbbs/widgets/layout/state_views.dart';
@@ -239,16 +240,33 @@ class _CreditLogPageState extends State<CreditLogPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    const routePath = '/credit-log';
+    final url = '${SiteStore.instance.baseUrl}/home.php?mod=spacecp&ac=credit&op=log';
     return Scaffold(
       appBar: AppBar(
         title: const Text('积分记录'),
         actions: [
           PageActions(
-            url:
-                '${SiteStore.instance.baseUrl}/home.php?mod=spacecp&ac=credit&op=log',
+            url: url,
             onRefresh: _fetch,
             loading: _isLoading,
             copyLabel: '复制记录链接',
+            extraItems: [
+              readLaterMenuItem(
+                inReadLater: isPageInReadLater(context, routePath),
+              ),
+            ],
+            onExtraSelected: (action) async {
+              if (action != 'read_later') return;
+              await togglePageReadLater(
+                context,
+                routePath: routePath,
+                title: '积分记录',
+                url: url,
+                subtitle: '积分记录',
+              );
+              if (mounted) setState(() {});
+            },
           ),
         ],
       ),

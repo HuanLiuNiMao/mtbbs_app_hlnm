@@ -1290,11 +1290,7 @@ class _BackupPageState extends State<BackupPage> {
       return;
     }
     final fileName = '${prefix}_${_timestamp()}.json';
-    final outcome = await FileSave.saveText(
-      json,
-      fileName: fileName,
-      allowedExtensions: const ['json'],
-    );
+    final outcome = await FileSave.saveText(json, fileName: fileName);
     if (!mounted) return;
     switch (outcome) {
       case FileSaveOutcome.saved:
@@ -1322,20 +1318,22 @@ class _BackupPageState extends State<BackupPage> {
       }
       return text;
     }
-    final result = await FilePick.pickFiles(
+    final file = await FilePick.pickFile(
       type: FileType.custom,
       allowedExtensions: const ['json'],
-      withData: true,
     );
-    final files = result?.files;
-    if (files == null || files.isEmpty) return null;
-    final file = files.first;
-    final bytes = file.bytes;
-    if (bytes != null) return utf8.decode(bytes);
+    if (file == null) return null;
     final path = file.path;
-    if (path != null) return File(path).readAsString();
-    if (mounted) showToast('无法读取文件');
-    return null;
+    try {
+      // file_picker 13 不再预带 bytes，Android 走 path，其它平台按需 readAsBytes
+      if (path != null) return await File(path).readAsString();
+      return utf8.decode(await file.readAsBytes());
+    } catch (e) {
+      if (mounted) showToast('读取文件失败：$e');
+      return null;
+    } finally {
+      await FilePick.cleanupTemp(path);
+    }
   }
 
   Future<String?> _askText({

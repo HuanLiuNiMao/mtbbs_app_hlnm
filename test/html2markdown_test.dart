@@ -74,6 +74,27 @@ void main() {
       expect(out, contains('2. 二'));
     });
 
+    test('列表项内嵌代码块 / 表格：按块缩进保留，不摊平成一行', () {
+      // 52pojie thread-2113652：Parsedown 允许 `<li>` 内直接放 <pre>/<table>。
+      // 原实现把非嵌套列表的子节点一律 _inline，代码块和表格结构全部丢失。
+      final out = md(
+        '<div class="parsedown-markdown"><ol>'
+        '<li>第一项'
+        '<pre><em class="CopyMyCode"> 复制代码</em>'
+        '<code class="language-plain">line1\nline2</code></pre>'
+        '</li>'
+        '<li>第二项'
+        '<table><thead><tr><th>A</th><th>B</th></tr></thead>'
+        '<tbody><tr><td>1</td><td>2</td></tr></tbody></table>'
+        '</li>'
+        '</ol></div>',
+      );
+      expect(out, contains('    ```plain'));
+      expect(out, contains('    line1'));
+      expect(out, contains('    | A | B |'));
+      expect(out, isNot(contains('第一项line1')));
+    });
+
     test('表格（thead/th）', () {
       final out = md(
         '<div class="parsedown-markdown">'
@@ -194,7 +215,7 @@ void main() {
       expect(out, isNot(contains('下载次数')));
     });
 
-    test('标题按阅读层级放大', () {
+    test('标题按 52 渲染层级（h2~h4 → size 5/4/3）', () {
       final out = conv(
         '<div class="parsedown-markdown">'
         '<h2>一级</h2><h3>二级</h3><h4>三级</h4>'
@@ -202,7 +223,7 @@ void main() {
       );
       expect(out, contains('[size=5][b]一级[/b][/size]'));
       expect(out, contains('[size=4][b]二级[/b][/size]'));
-      expect(out, contains('[size=4][b]三级[/b][/size]'));
+      expect(out, contains('[size=3][b]三级[/b][/size]'));
     });
 
     test('引用嵌套折叠为单层 [quote]，不残留字面标签', () {

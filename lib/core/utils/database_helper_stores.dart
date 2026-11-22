@@ -12,6 +12,9 @@ final _browseStore = stringMapStoreFactory.store('browse_records');
 /// 搜索历史 — int auto-increment key，Map value
 final _searchStore = intMapStoreFactory.store('search_history');
 
+/// 稍后再看 — String key（item.id），Map value
+final _readLaterStore = stringMapStoreFactory.store('read_later');
+
 /// 编辑器快照 — String key（snapshot.id），Map value
 final _snapshotStore = stringMapStoreFactory.store('editor_snapshots');
 

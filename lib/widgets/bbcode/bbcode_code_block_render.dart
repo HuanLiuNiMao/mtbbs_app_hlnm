@@ -86,8 +86,7 @@ extension on _BbcodeCodeBlockState {
   }) {
     final isDark = cs.brightness == Brightness.dark;
     final theme = isDark ? monokaiSublimeTheme : githubTheme;
-    final baseStyle = TextStyle(
-      fontFamily: 'monospace',
+    final baseStyle = context.appTypography.mono.copyWith(
       fontSize: widget.fontSize,
       height: _kLineHeight,
       color: theme['root']?.color,
@@ -98,19 +97,22 @@ extension on _BbcodeCodeBlockState {
     // 按实际位数取宽（行号右对齐，额外 6px 作为左侧留白），避免槽过宽
     final gutterWidth = digits * widget.fontSize * _kCharWidthRatio + 6;
 
-    final numberStyle = TextStyle(
-      fontFamily: 'monospace',
+    final numberStyle = context.appTypography.mono.copyWith(
       fontSize: widget.fontSize,
       height: _kLineHeight,
       color: cs.codeBlockBarText.withValues(alpha: 0.55),
     );
 
-    Widget number(int index) => SizedBox(
-      width: gutterWidth,
-      child: Text(
-        '${index + 1}',
-        textAlign: TextAlign.right,
-        style: numberStyle,
+    // 行号只用于定位，不属于代码内容：禁用选区，避免复制代码时把
+    // 「1 2 3…」一起带走（否则粘贴到编辑器里还得手工删行号）。
+    Widget number(int index) => SelectionContainer.disabled(
+      child: SizedBox(
+        width: gutterWidth,
+        child: Text(
+          '${index + 1}',
+          textAlign: TextAlign.right,
+          style: numberStyle,
+        ),
       ),
     );
 

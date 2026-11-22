@@ -56,11 +56,12 @@ extension on _ThreadViewPageState {
       _liked = d.mainPost?.isLiked ?? false;
 
       final title = d.title.isNotEmpty ? d.title : '帖子${widget.tid}';
-      _recordThreadHistory();
 
       _commentPages[1] = List<PostItem>.from(d.posts);
       _currentPage = targetPage.clamp(1, _totalPages);
       _mainPostLoaded = _currentPage == 1;
+      // 页码确定后再记录：初始进入非第 1 页时，历史与「稍后再看」都要落正确页码
+      _recordThreadHistory();
 
       // 新帖自动缓存：不 await，缓存 IO 不阻塞渲染
       _writeAutoCache(d);
@@ -150,6 +151,9 @@ extension on _ThreadViewPageState {
         }
         _commentPages[_currentPage] = merged;
         if (actualPage > _windowEnd) _windowEnd = actualPage;
+        // 扩窗不移动 `_currentPage`，但用户实际已经能读到窗口末端，
+        // 进度按 `_windowEnd` 记才贴近真实阅读位置。
+        _syncReadLaterProgress(page: _windowEnd);
         AppLogger.i(
           'PAGE',
           'extendWindow: +$added posts from page $actualPage '
@@ -164,6 +168,8 @@ extension on _ThreadViewPageState {
         if (data.posts.length > _commentPageSizeHint) {
           _commentPageSizeHint = data.posts.length;
         }
+        // 任意翻页路径（上下页 / 跳页 / 楼层跳转）都在页码落地后同步进度
+        if (switchPage) _syncReadLaterProgress();
         AppLogger.i(
           'PAGE',
           'loaded comment page $actualPage (${data.posts.length} posts), '

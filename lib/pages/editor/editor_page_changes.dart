@@ -3,10 +3,22 @@ part of 'editor_page.dart';
 /// 变更跟踪与自动保存 — 内容监听、脏状态计算、预览防抖与快照落盘。
 extension on _EditorPageState {
   void _onContentChanged() {
-    _setState(() {});
-    _updateHasChanges();
-    _updateEmojiWarning();
-    _resetAutoSaveTimer();
+    // TextEditingController 在**选区变化**时也会 notifyListeners —— 拖拽选择手柄
+    // 时这里每帧都会被调到。若无条件 `_setState`，TextField 每帧都会拿到新的
+    // `contextMenuBuilder` 闭包，`EditableText.didUpdateWidget` 据此把选区 overlay
+    // dispose 再重建，手柄拖拽的手势随即被打断（安卓上表现为拖不动 / 抖动）。
+    // 因此只有文本真的变了才重建；选区变化只刷新预览高亮（防抖）。
+    final title = _session.titleCtl.text;
+    final content = _session.contentCtl.text;
+    final textChanged = content != _lastSeenText || title != _lastSeenTitle;
+    if (textChanged) {
+      _lastSeenTitle = title;
+      _setState(() {});
+      _updateHasChanges();
+      _updateEmojiWarning();
+      _resetAutoSaveTimer();
+    }
+    // 选区变化也要让预览高亮跟上（拖选时手柄位置由框架自己管）
     _schedulePreviewUpdate();
   }
 
@@ -41,6 +53,9 @@ extension on _EditorPageState {
   /// 高亮，且不依赖任何全局偏移补偿。
   String _highlightInAnchor(BbAnchor a, TextSelection selection, String color) {
     if (!selection.isValid || selection.isCollapsed) return a.raw;
+    // Markdown 源里插入 `[backcolor]` 会被 Markdown 原样当文本渲染（还会破坏
+    // 代码围栏），所以这类锚点不高亮 —— 宁可少一层视觉提示，也不能改坏内容。
+    if (a.kind == BbBlockKind.markdown) return a.raw;
     final from = selection.start.clamp(a.start, a.end) - a.start;
     final to = selection.end.clamp(a.start, a.end) - a.start;
     if (from >= to) return a.raw;

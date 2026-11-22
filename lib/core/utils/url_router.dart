@@ -1,6 +1,7 @@
 import 'package:mtbbs/core/app/session_registry.dart';
 import 'package:mtbbs/core/app/site_scope.dart';
 import 'package:mtbbs/core/app/site_store.dart';
+import 'package:mtbbs/core/utils/uid_util.dart';
 import 'package:mtbbs/core/utils/url_util.dart';
 
 part 'url_router_php.dart';
@@ -165,6 +166,22 @@ class UrlRouter {
   ///
   /// 首页链接点击、帖子正文里的链接、系统「打开方式」入站链接都走这里，
   /// 保证行为一致（此前各处各写一份，兜底参数还漏过）。
+  /// 输入是否像一个链接（完整 URL、裸域名或站内相对路径）。
+  ///
+  /// 供搜索框等"用户可能输入关键词、也可能粘贴链接"的场景判断要不要展示
+  /// 「打开链接」入口。**不要在各页面另写启发式规则**——判定口径必须与
+  /// [parse] 一致，否则会出现"看起来是链接但 App 不识别 / 反过来"的错位。
+  static bool looksLikeUrl(String text) {
+    final value = text.trim();
+    if (value.isEmpty) return false;
+    return value.contains('://') ||
+        (value.contains('.') && !value.contains(' ')) ||
+        value.contains('forum.php') ||
+        value.contains('thread-') ||
+        value.contains('home.php') ||
+        value.contains('space-uid');
+  }
+
   static String? resolveTarget(String url) {
     final text = url.trim();
     if (text.isEmpty) return null;

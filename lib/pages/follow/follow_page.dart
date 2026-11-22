@@ -9,6 +9,7 @@ import 'package:mtbbs/services/api_service.dart';
 import 'package:mtbbs/widgets/common/account_header.dart';
 import 'package:mtbbs/widgets/common/filter_search_field.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
+import 'package:mtbbs/widgets/common/read_later_page_action.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';
 import 'package:mtbbs/widgets/layout/page_error_widget.dart';
 import 'package:mtbbs/widgets/layout/pagination_bar.dart';
@@ -161,17 +162,40 @@ class _FollowPageState extends State<FollowPage> {
 
   @override
   Widget build(BuildContext context) {
+    final uid = widget.uid ?? '';
+    final routePath =
+        '/follow?type=${widget.type}${uid.isEmpty ? '' : '&uid=$uid'}';
+    final url =
+        '${SiteStore.instance.baseUrl}/home.php?mod=follow&do=${widget.type}'
+        '${uid.isEmpty ? '' : '&uid=$uid'}';
+    final accountName = _account?['nickname']?.toString() ?? '';
+    final pageTitle = accountName.isEmpty ? _title : '$accountName · $_title';
     return Scaffold(
       appBar: AppBar(
         title: Text(_title),
         actions: [
           PageActions(
-            url:
-                '${SiteStore.instance.baseUrl}/home.php?mod=follow&do=${widget.type}'
-                '${(widget.uid ?? '').isEmpty ? '' : '&uid=${widget.uid}'}',
+            url: url,
             onRefresh: _onRefresh,
             loading: _isLoading,
             copyLabel: '复制${widget.isFollowing ? '关注' : '粉丝'}链接',
+            extraItems: [
+              readLaterMenuItem(
+                inReadLater: isPageInReadLater(context, routePath),
+              ),
+            ],
+            onExtraSelected: (action) async {
+              if (action != 'read_later') return;
+              await togglePageReadLater(
+                context,
+                routePath: routePath,
+                title: pageTitle,
+                url: url,
+                subtitle: _title,
+                page: _page,
+              );
+              if (mounted) setState(() {});
+            },
           ),
         ],
       ),
@@ -269,7 +293,8 @@ class _FollowPageState extends State<FollowPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => context.push('/user/$uid'),
+        // uid 为空（老站点/异常模板）时不跳转，避免进入 `/user/` 这种非法路由
+        onTap: uid.isEmpty ? null : () => context.push('/user/$uid'),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: Row(
@@ -347,7 +372,7 @@ class _FollowPageState extends State<FollowPage> {
     final cs = Theme.of(context).colorScheme;
     final style = TextStyle(fontSize: 10, color: cs.onSurfaceVariant);
     return InkWell(
-      onTap: count.isNotEmpty
+      onTap: count.isNotEmpty && uid.isNotEmpty
           ? () => _openUserFollow(uid, following: following)
           : null,
       child: Padding(

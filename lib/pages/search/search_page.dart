@@ -24,7 +24,6 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
-  UrlRouteResult? _routeResult;
   bool _isUrl = false;
 
   @override
@@ -43,20 +42,9 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _onTextChanged() {
-    final text = _controller.text.trim();
     setState(() {
-      _isUrl = text.isNotEmpty && _isLikelyUrl(text);
-      _routeResult = _isUrl ? UrlRouter.parse(text) : null;
+      _isUrl = UrlRouter.looksLikeUrl(_controller.text);
     });
-  }
-
-  bool _isLikelyUrl(String text) {
-    return text.contains('://') ||
-        (text.contains('.') && !text.contains(' ')) ||
-        text.contains('forum.php') ||
-        text.contains('thread-') ||
-        text.contains('home.php') ||
-        text.contains('space-uid');
   }
 
   /// 输入是否可能是某个用户（UID 或用户名）—— 搜索建议用的**宽松判定**。
@@ -82,31 +70,22 @@ class _SearchPageState extends State<SearchPage> {
 
   // ==================== 动作 ====================
 
-  Future<void> _openInApp(String input) async {
+  /// 打开链接 —— **落地页全部交给 [UrlRouter.resolveTarget]**。
+  ///
+  /// 能识别为 App 页面就进 App（跨站已支持页面带 `site=` 临时身份），
+  /// 识别不了才退内置浏览器。页面自己不再判断"是不是 App 可识别的页面"，
+  /// 避免与 URL 路由的判定口径漂移。
+  Future<void> _openLink(String input) async {
     await _addHistory(input);
     if (!mounted) return;
 
     final fullUrl = input.contains('://')
         ? input
         : '${SiteStore.instance.baseUrl}/$input';
-    // 统一决策点：跨站已支持页面 → 带 `site=` 的 App 内路径（临时身份只读访问），
-    // 其余不支持的 → 内置浏览器兜底
     final target = UrlRouter.resolveTarget(fullUrl);
     if (target != null && mounted) {
       context.push(target);
     }
-  }
-
-  Future<void> _openInBrowser(String input) async {
-    await _addHistory(input);
-    if (!mounted) return;
-
-    final fullUrl = input.contains('://')
-        ? input
-        : '${SiteStore.instance.baseUrl}/$input';
-    context.push(
-      '/browser?url=${Uri.encodeComponent(fullUrl)}&intercept=false',
-    );
   }
 
   /// 按帖子 ID 直接打开帖子（纯数字输入的快捷入口）
@@ -318,22 +297,12 @@ class _SearchPageState extends State<SearchPage> {
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       children: [
         if (_isUrl) ...[
-          if (_routeResult?.appPath != null)
-            _suggestionCard(
-              icon: Icons.open_in_new,
-              iconColor: cs.onSurfaceVariant,
-              label: '打开页面：${_routeResult!.label}',
-              subtitle: _routeResult!.siteName != null
-                  ? '[${_routeResult!.siteName}] ${_routeResult!.appPath}'
-                  : _routeResult!.appPath,
-              onTap: () => _openInApp(text),
-            ),
           _suggestionCard(
-            icon: Icons.language,
-            iconColor: const Color(0xFF607D8B),
-            label: '在浏览器中打开',
-            subtitle: text,
-            onTap: () => _openInBrowser(text),
+            icon: Icons.open_in_new,
+            iconColor: cs.onSurfaceVariant,
+            label: '打开链接',
+            subtitle: 'App 页面优先，识别不了时用内置浏览器',
+            onTap: () => _openLink(text),
           ),
           const Divider(height: 16),
         ],
@@ -348,7 +317,7 @@ class _SearchPageState extends State<SearchPage> {
           ),
           const Divider(height: 16),
         ],
-        // 链接输入交给上面的「打开页面 / 浏览器」建议，不再当作用户名
+        // 链接输入交给上面的「打开链接」建议，不再当作用户名
         if (_hasUserMatch(text) && !_isUrl) ...[
           _suggestionCard(
             icon: Icons.person,

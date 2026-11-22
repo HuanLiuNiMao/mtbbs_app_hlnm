@@ -174,11 +174,7 @@ class _BackupLogPageState extends State<BackupLogPage> {
     final fileName =
         'mtbbs_backup_log_${mode == 'json' ? 'json' : 'txt'}'
         '_${DateTime.now().millisecondsSinceEpoch}.${mode == 'json' ? 'json' : 'txt'}';
-    final outcome = await FileSave.saveText(
-      text,
-      fileName: fileName,
-      allowedExtensions: [mode == 'json' ? 'json' : 'txt'],
-    );
+    final outcome = await FileSave.saveText(text, fileName: fileName);
     if (!mounted) return;
     switch (outcome) {
       case FileSaveOutcome.saved:

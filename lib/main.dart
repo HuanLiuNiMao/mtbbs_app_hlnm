@@ -11,8 +11,10 @@ import 'package:mtbbs/auth/providers/auth_provider.dart';
 import 'package:mtbbs/core/settings/settings_repository.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/providers/history_provider.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
 import 'package:mtbbs/providers/search_history_provider.dart';
 import 'package:mtbbs/providers/editor_history_provider.dart';
+import 'package:mtbbs/config/app_typography.dart';
 import 'package:mtbbs/config/nav_config.dart';
 import 'package:mtbbs/config/router.dart';
 import 'package:mtbbs/mcp/mcp_server_controller.dart';
@@ -34,6 +36,7 @@ import 'package:mtbbs/api/forum/misc/export.dart' as forum_misc;
 import 'package:mtbbs/api/home/credit/export.dart' as credit_api;
 import 'package:mtbbs/models/post_preview.dart';
 import 'package:mtbbs/core/app/desktop_window.dart';
+import 'package:mtbbs/core/utils/app_fonts.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/core/utils/max_screen_size.dart';
@@ -207,6 +210,9 @@ void main() async {
   final searchHistory = SearchHistoryProvider();
   await searchHistory.load();
 
+  final readLater = ReadLaterProvider();
+  await readLater.load();
+
   final editorHistory = EditorHistoryProvider();
   // 同步编辑器配置到 EditorHistoryProvider
   editorHistory.minSnapshotWordCount = settings.minSnapshotWordCount;
@@ -239,6 +245,7 @@ void main() async {
     settings,
     history,
     searchHistory,
+    readLater,
     editorHistory,
     router,
   );
@@ -268,6 +275,7 @@ MyApp _buildApp(
   SettingsProvider settings,
   HistoryProvider history,
   SearchHistoryProvider searchHistory,
+  ReadLaterProvider readLater,
   EditorHistoryProvider editorHistory,
   GoRouter router,
 ) {
@@ -276,6 +284,7 @@ MyApp _buildApp(
     settings: settings,
     history: history,
     searchHistory: searchHistory,
+    readLater: readLater,
     editorHistory: editorHistory,
     router: router,
   );
@@ -343,6 +352,7 @@ class MyApp extends StatelessWidget {
   final SettingsProvider settings;
   final HistoryProvider history;
   final SearchHistoryProvider searchHistory;
+  final ReadLaterProvider readLater;
   final EditorHistoryProvider editorHistory;
   final GoRouter router;
 
@@ -352,6 +362,7 @@ class MyApp extends StatelessWidget {
     required this.settings,
     required this.history,
     required this.searchHistory,
+    required this.readLater,
     required this.editorHistory,
     required this.router,
   });
@@ -373,6 +384,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: settings),
         ChangeNotifierProvider.value(value: history),
         ChangeNotifierProvider.value(value: searchHistory),
+        ChangeNotifierProvider.value(value: readLater),
         ChangeNotifierProvider.value(value: editorHistory),
       ],
       child: Builder(
@@ -564,7 +576,15 @@ class _NoticeLifecycleWatcherState extends State<_NoticeLifecycleWatcher>
 ThemeData _buildThemeData(ColorScheme cs) {
   return ThemeData(
     useMaterial3: true,
-    fontFamily: 'sans-serif',
+    // 显式按平台指定字体：`sans-serif` 在桌面端不存在，会回退到宋体等不可控字体
+    fontFamily: appFontFamily,
+    fontFamilyFallback: appFontFallback,
+    extensions: [
+      AppTypography(
+        monoFamily: appMonoFontFamily,
+        monoFallback: appMonoFontFallback,
+      ),
+    ],
     colorScheme: cs,
     appBarTheme: AppBarTheme(
       backgroundColor: cs.surface,

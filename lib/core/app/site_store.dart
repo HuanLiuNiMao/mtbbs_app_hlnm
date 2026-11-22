@@ -33,6 +33,19 @@ class SiteStore extends ChangeNotifier {
   /// 当前站点域名
   String get host => current.host;
 
+  /// 该站点是否由服务端原生渲染 `[md]…[/md]`。
+  ///
+  /// 目前只有 52pojie 装了 Markdown 插件；其它站点（含 MT）把 `[md]` 当普通
+  /// 文本，解析与渲染都必须按「不支持」处理，否则 App 内会出现只有本机才能
+  /// 理解的 Markdown 效果。解析层（`html2markdown`）与渲染层
+  /// （`BBCode2Html.supportsMd`）共用这一处判定。
+  static bool supportsMdTag(String host) => host == 'www.52pojie.cn';
+
+  /// 该站点是否支持 Discuz 群组（圈子）入口。
+  ///
+  /// 目前只在 MT 论坛实测到圈子（`group.php`），其它论坛未适配，首页不显示入口。
+  static bool supportsGroups(String host) => host == 'bbs.binmt.cc';
+
   /// 当前站点 baseUrl
   String get baseUrl => current.baseUrl;
 

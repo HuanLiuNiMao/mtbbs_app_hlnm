@@ -9,6 +9,19 @@ extension on _EditorPageState {
     if (_attachmentList.isNotEmpty) 'attach': _attachmentList.length,
   };
 
+  /// 正文选择菜单的 builder。
+  ///
+  /// 必须用**方法 tear-off**（同一实例的方法 tear-off 相等），不能用内联闭包：
+  /// `EditableText.didUpdateWidget` 按身份比较 `contextMenuBuilder`，身份一变就
+  /// dispose 并重建选区 overlay —— 拖拽选择手柄的手势会被一起销毁。
+  Widget _buildContentContextMenu(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) => buildEditorSelectionToolbar(
+    editableTextState: editableTextState,
+    toolbarKey: _toolbarKey,
+  );
+
   Widget _buildPage(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isWide = MediaQuery.sizeOf(context).isWide;
@@ -445,11 +458,7 @@ extension on _EditorPageState {
                         focusNode: _contentFocusNode,
                         undoController: _undoController,
                         // 选中第一行时选择菜单会压住上方工具栏 → 自动翻到选区下方
-                        contextMenuBuilder: (context, editableTextState) =>
-                            buildEditorSelectionToolbar(
-                              editableTextState: editableTextState,
-                              toolbarKey: _toolbarKey,
-                            ),
+                        contextMenuBuilder: _buildContentContextMenu,
                         maxLength: context
                             .read<SettingsProvider>()
                             .postMaxLength,

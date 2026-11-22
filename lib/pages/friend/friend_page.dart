@@ -8,6 +8,7 @@ import 'package:mtbbs/services/api_service.dart';
 import 'package:mtbbs/widgets/common/account_header.dart';
 import 'package:mtbbs/widgets/common/filter_search_field.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
+import 'package:mtbbs/widgets/common/read_later_page_action.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';
 import 'package:mtbbs/widgets/layout/page_error_widget.dart';
 import 'package:mtbbs/widgets/layout/pagination_bar.dart';
@@ -145,17 +146,38 @@ class _FriendPageState extends State<FriendPage> {
 
   @override
   Widget build(BuildContext context) {
+    final routePath = _uid.isEmpty ? '/friends' : '/friends?uid=$_uid';
+    final url = _uid.isEmpty
+        ? '${SiteStore.instance.baseUrl}/home.php?mod=space&do=friend&view=me&from=space'
+        : '${SiteStore.instance.baseUrl}/home.php?mod=space&uid=$_uid&do=friend&from=space';
+    final accountName = _account?['nickname']?.toString() ?? '';
+    final pageTitle = accountName.isEmpty ? '好友' : '$accountName · 好友';
     return Scaffold(
       appBar: AppBar(
         title: const Text('好友'),
         actions: [
           PageActions(
-            url: _uid.isEmpty
-                ? '${SiteStore.instance.baseUrl}/home.php?mod=space&do=friend&view=me&from=space'
-                : '${SiteStore.instance.baseUrl}/home.php?mod=space&uid=$_uid&do=friend&from=space',
+            url: url,
             onRefresh: _onRefresh,
             loading: _isLoading,
             copyLabel: '复制好友链接',
+            extraItems: [
+              readLaterMenuItem(
+                inReadLater: isPageInReadLater(context, routePath),
+              ),
+            ],
+            onExtraSelected: (action) async {
+              if (action != 'read_later') return;
+              await togglePageReadLater(
+                context,
+                routePath: routePath,
+                title: pageTitle,
+                url: url,
+                subtitle: '好友',
+                page: _page,
+              );
+              if (mounted) setState(() {});
+            },
           ),
         ],
       ),
@@ -241,7 +263,8 @@ class _FriendPageState extends State<FriendPage> {
               ),
               clipBehavior: Clip.antiAlias,
               child: InkWell(
-                onTap: () => context.push('/user/$uid'),
+                // uid 为空时不跳转，避免进入 `/user/` 非法路由
+                onTap: uid.isEmpty ? null : () => context.push('/user/$uid'),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Row(

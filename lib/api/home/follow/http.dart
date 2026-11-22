@@ -97,3 +97,14 @@ Future<Response<String>> getFollowStatusPage(Dio dio, String uid) {
     options: Options(headers: {'User-Agent': Site.uaPc}),
   );
 }
+
+/// 拉取用户资料页（也用于「formhash 为空时自动补齐」）。
+///
+/// 与关注/取关写接口使用同一 PC UA：`#followmod` 链接里的 hash 与
+/// `input[name=formhash]` 是同一个值，用移动 UA 可能拿到不同的模板结构。
+Future<Response<String>> getProfilePage(Dio dio, {required String uid}) {
+  return dio.get<String>(
+    '/home.php?mod=space&uid=$uid&do=profile',
+    options: Options(headers: {'User-Agent': Site.uaPc}),
+  );
+}

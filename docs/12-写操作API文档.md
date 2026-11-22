@@ -157,7 +157,106 @@
 | UI | `CaptchaField` / `CaptchaFields`（`widgets/editor/captcha_field.dart`），完整编辑器与帖子页迷你编辑器共用；验证失败时**不收起**迷你编辑器，允许原地重试 |
 | 提交 | `post/http.dart` 统一追加 `_seccodeFields` / `_secqaaFields`；`editor_submit.dart` 从 `pageData` 读取 |
 
-## 8. 相关文件
+## 8. 关注 / 取消关注 — fuid + hash(=formhash)
+
+Discuz 把「关注」叫「收听」，按钮文案随模板不同（PC 资料页「收听TA / 取消收听」，
+克米移动模板「关注」/ 已关注仅显示图标）。客户端统一显示「关注 / 已关注」。
+
+> 本节合并了两条来源：本仓库的「参数契约 + 三级按钮回退」与上游的「资料页 / 空间首页 /
+> 关注列表三形态解析 + 幂等补齐」。两者描述的是同一个接口，故合成一节，不再分列。
+
+| 项 | 关注 | 取消关注 |
+|---|---|---|
+| 端点 | `POST /home.php?mod=spacecp&ac=follow&op=add&hash={hash}&fuid={fuid}&handlekey=followmod&inajax=1` | `POST /home.php?mod=spacecp&ac=follow&op=del&hash={hash}&fuid={fuid}&handlekey=followmod&inajax=1` |
+| body | `formhash={hash}` + `followsubmit=true` | `formhash={hash}` |
+| 必填参数 | `fuid`（目标 uid）+ `hash` | `fuid`（服务端不校验 hash，仍一并带上以兼容插件） |
+| 探针场景 | `follow.add` | `follow.del` |
+| 代码 | `lib/api/home/follow/{http,parse,export}.dart`（`submitFollow` / `submitUnfollow` / `getProfilePage`；导出层 `followUser` / `unfollowUser` / `getFollowStatus`） | 同左 |
+| UI 落点 | `user_profile_page.dart`（`_loadFollowStatus` / `_toggleFollow`，乐观更新 + 失败回滚）+ `user_profile_sections_extra.dart`（头部操作区）+ `thread_post_card.dart`（主帖胶囊） | 同左 |
+
+### 8.1 参数契约（以 Discuz 官方 `source/include/spacecp/spacecp_follow.php` 为准）
+
+```php
+// op=add
+$followuid = intval($_GET['fuid']);
+if($_GET['hash'] != FORMHASH || empty($followuid)) exit('Access Denied');
+// op=del
+$delfollowuid = intval($_GET['fuid']);
+if(empty($delfollowuid)) exit('Access Denied');
+```
+
+由此得两条硬约束：
+
+1. **`fuid` 必填** —— 只给 `hash` 不给 `fuid` 会被判 Access Denied，这是早期版本
+   「点了没反应」的根因。
+2. **`hash` 不是独立令牌，它必须等于页面 `formhash`**（`$_GET['hash'] != FORMHASH`）。
+   从按钮 `href` 解析出的 `hash` 与 `input[name=formhash]` 是同一个值，但**以 `formhash`
+   为准更稳**（href 可能被模板省略）。
+
+### 8.2 为什么用 POST 而不是 GET
+
+上游实现走 `GET ...&inajax=1`。本仓库站点为**阿里云 ESA WAF 前置**，GET 写操作会被拦成
+挑战页，因此改走 `POST` + PC UA（`Site.uaPc`）+ `application/x-www-form-urlencoded` +
+`X-Requested-With: XMLHttpRequest` + `Referer`（与 `home/wall/http.dart` 同一约定，
+详见 docs/21）。URL 上的 query 参数保持与会话校验一致，参数同时放进 body。
+
+### 8.3 页面状态与 formhash 来源
+
+两站一致（2026-11 实测 MT / 52pojie），共三种形态，由 `parseFollowState` 统一兼容：
+
+- **资料页**（`home.php?mod=space&uid={uid}&do=profile`，PC 与移动模板结构一致）：
+  `a#followmod` 的 href 即当前状态 —— 含 `op=add&hash=…` = 未关注，含 `op=del` = 已关注。
+  未关注时 `hash` 就在该链接里，直接取出即可，不必额外请求。
+- **空间首页**（PC，`space-uid-*.html`）：`#unfollowflag` / `#followflag` 两个容器靠内联
+  `display:none` 互斥显示。
+- **关注 / 粉丝列表**：`a[id^=a_followmod_]`（`flw_btn_unfo` = 已关注）。
+- **帖子详情页**：楼主作者区 `a[id^=followmod_{uid}]`（文案「收听TA / 不收听」），同样以
+  href 含 `op=add&hash=…` / `op=del` 判断，`parseFollowHref` 解析；主帖卡片右上角渲染
+  「关注 / 已关注」胶囊（仅主帖、非本人、非只读场景）。
+
+**按钮定位（三级回退）**，`parseFollowStatus` 用于资料页：
+
+1. `#ct a.flw_btn_unfo` / `#ct a.flw_btn_fo`；
+2. 全文档 `a[id^="a_followmod_"]`；
+3. 遍历 `a[href*="ac=follow"]` 且 href 含 `op=add|del`。
+
+站点模板差异（PC / `mobile=2`）会把按钮渲染到 `#ct` 之外，只认第一级会导致
+`isFollowing` 恒 `null`，UI 便整块隐藏关注入口 —— 即用户反馈的「用户主页没有关注按钮」。
+
+状态判定优先看 `href` 的 `op=`（`op=del` → 已关注，`op=add` → 未关注），比 class 更可靠；
+两者都缺失时才回退 `flw_btn_unfo`。`hash` 用 `RegExp(r'[?&](?:hash|formhash)=([0-9a-zA-Z]+)')`
+提取，`fuid` 用 `RegExp(r'[?&]fuid=(\d+)')`。
+
+`parseFollowStatus` 额外返回 `canFollow`（= `fuid` 与 `formhash` 均非空），供调用方判断写
+操作是否就绪；`fuid` 字段同时回显，调用方无需自己再取一次 uid。
+
+### 8.4 幂等与 formhash 自动补齐
+
+- **已关注状态页面不提供 hash**：`followUser(fuid:)` 在 `formhash` 为空时会重新拉一次资料页
+  （`getProfilePage`）补齐；
+- 若补齐时资料页显示**已关注**，直接返回 `{'success': true, 'followed': true, 'message': '已关注'}`
+  —— 不再发写请求，避免重复点击被服务端回「您已收听该用户」这种错误文案；
+- `unfollowUser(fuid:)` 的 `formhash` 同样可省略，省略时补齐，用于兼容开启额外校验的站点插件。
+
+### 8.5 响应解析
+
+`inajax=1` 返回 XML + CDATA，**52pojie 是 GBK**（`charset=gbk`，由 Dio 的
+`responseDecoder` 统一解码）：
+
+```html
+<root><![CDATA[<div class="alert_right">成功收听
+<script>…succeedhandle_followmod(…,'成功收听',
+  {'fuid':'1','type':'add','special':'0','from':'list'});</script>
+</div>]]></root>
+```
+
+- 先交 `parseSubmitResponse`（认通用 `succeedhandle_`）；
+- 未判成功时再兜一层 `parseFollowResult`（认 `'type':'add'|'del'`）—— 部分站点成功文案不
+  带 `succeedhandle_`；
+- 失败为 `.alert_error` / `.alert_info`（如「您已收听该用户」「不能收听自己」），文案会原样
+  透传给 Toast，不硬编码站点文案。
+
+## 9. 相关文件
 
 | 文件 | 职责 |
 |---|---|
@@ -167,57 +266,6 @@
 | `lib/api/forum/secqaa/{http,parse,export}.dart` | 验证问答取题、换题、JS 题面解析 |
 | `lib/core/parser/page_fetcher.dart` | 从编辑页提取 seccodehash / seccodemodid / 图片地址、secqaahash |
 | `lib/pages/editor/editor_submit.dart` | submitEdit（编辑器内联实现，探针 post.edit 复用其逻辑） |
+| `lib/api/home/follow/{http,parse,export}.dart` | 关注/取消关注写接口 + 状态解析（`parseFollowStatus` / `parseFollowState` 两套并存） |
 | `tool/api_scenarios.dart` | 场景聚合器（合并 `tool/scenarios/` 子模块，对外接口不变） |
-| `tool/scenarios/write_scenarios.dart` | post.new / post.reply / post.edit / post.captcha 探针场景 |
-
-
-## 9. 收听 / 取消收听 — fuid + hash(=formhash)
-
-| 项 | 值 |
-|---|---|
-| 加载页 | `GET /home.php?mod=space&uid={uid}&do=profile`（同时取 `formhash`、按钮 `href` 里的 `hash` 与 `fuid`） |
-| 收听端点 | `POST /home.php?mod=spacecp&ac=follow&op=add&hash={hash}&fuid={fuid}&handlekey=followmod&inajax=1` |
-| 取消端点 | `POST /home.php?mod=spacecp&ac=follow&op=del&hash={hash}&fuid={fuid}&handlekey=followmod&inajax=1` |
-| 必填参数 | `fuid`（目标 uid）+ `hash`；op=add 时 body 额外 `followsubmit=true` |
-| 代码 | `lib/api/home/follow/{http,parse,export}.dart`（`submitFollow` / `submitUnfollow` / `getFollowStatusPage`；导出层为 `followUser` / `unfollowUser` / `getFollowStatus`） |
-| UI 落点 | `lib/pages/user/user_profile_page.dart`（`_loadFollowStatus` / `_toggleFollow`，乐观更新 + 失败回滚）+ `user_profile_sections_extra.dart`（头部操作区关注项） |
-
-要点：
-
-- **参数契约（以 Discuz 官方 `source/include/spacecp/spacecp_follow.php` 为准）**：
-
-  ```php
-  // op=add
-  $followuid = intval($_GET['fuid']);
-  if($_GET['hash'] != FORMHASH || empty($followuid)) exit('Access Denied');
-  // op=del
-  $delfollowuid = intval($_GET['fuid']);
-  if(empty($delfollowuid)) exit('Access Denied');
-  ```
-
-  由此得两条硬约束：
-
-  1. **`fuid` 必填** —— 只给 `hash` 不给 `fuid` 会被判 Access Denied，这是旧版「点了没反应」的根因。
-  2. **`hash` 不是独立令牌，它必须等于页面 `formhash`**（`$_GET['hash'] != FORMHASH`）。
-     从按钮 `href` 解析出的 `hash` 与 `input[name=formhash]` 是同一个值，但以 `formhash` 为准更稳（href 可能被模板省略）。
-     取关分支只校验 `fuid` 非空、不校验 `hash`，仍一并带上以兼容开启额外校验的站点插件。
-
-- **按钮定位（三级回退）**：① `#ct a.flw_btn_unfo` / `#ct a.flw_btn_fo`；② 全文档 `a[id^="a_followmod_"]`；
-  ③ 遍历 `a[href*="ac=follow"]` 且 href 含 `op=add|del`。站点模板差异（PC / `mobile=2`）会把按钮渲染到 `#ct` 之外，
-  只认第一级会导致 `isFollowing` 恒 null，UI 便整块隐藏关注入口 —— 即用户反馈的「用户主页没有关注按钮」。
-
-- **按钮状态判定**：优先看 `href` 的 `op=`（`op=del` → 已收听，`op=add` → 未收听），比 class 更可靠；
-  两者都缺失时才回退到 `flw_btn_unfo` class。`hash` 用 `RegExp(r'[?&]hash=([0-9a-zA-Z]+)')` 提取，
-  `fuid` 用 `RegExp(r'[?&]fuid=(\d+)')`。
-
-- **`canFollow`**：`parseFollowStatus` 额外返回 `canFollow`（= `fuid` 与 `formhash` 均非空），供调用方判断写操作是否就绪。
-
-- **WAF 前置要求（与留言板同约定）**：站点为阿里云 ESA WAF 前置，写 POST 必须同时满足 PC UA（`Site.uaPc`）
-  + `Content-Type: application/x-www-form-urlencoded` + `X-Requested-With: XMLHttpRequest` + Referer，
-  否则被 WAF 拦成挑战页（见 docs/21、`home/wall/http.dart` 注释）。
-
-- **响应解析**：inajax XML，成功为 `succeedhandle_…`，可直接交 `parseSubmitResponse`。
-
-- **失败兜底**：关注项渲染只要求 `uid` 可用（不再依赖 `isFollowing != null`）；`isFollowing == null` 时按「未收听」展示，
-  写操作 `fuid` 用页面 uid 兜底、`hash` 用 `formhash` 兜底；点击时若令牌仍未就绪则提示「关注信息未就绪，请稍候或刷新」。
-  收听态加载失败静默降级（`AppLogger.w`），不阻断主页加载。
+| `tool/scenarios/write_scenarios.dart` | post.new / post.reply / post.edit / post.captcha / follow.add / follow.del 探针场景 |

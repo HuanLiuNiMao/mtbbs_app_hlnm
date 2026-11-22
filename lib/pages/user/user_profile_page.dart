@@ -8,6 +8,7 @@ import 'package:mtbbs/core/app/app_capabilities.dart';
 import 'package:mtbbs/core/app/site_session.dart';
 import 'package:mtbbs/core/app/site_scope.dart';
 import 'package:mtbbs/core/app/verification_gate.dart';
+import 'package:mtbbs/config/app_typography.dart';
 import 'package:mtbbs/core/settings/settings_repository.dart';
 import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/string_utils.dart';
@@ -20,11 +21,14 @@ import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/core/utils/clipboard_helper.dart';
 import 'package:mtbbs/models/browse_record.dart';
 import 'package:mtbbs/providers/history_provider.dart';
+import 'package:mtbbs/providers/read_later_provider.dart';
+import 'package:mtbbs/models/read_later_item.dart';
 import 'package:mtbbs/widgets/common/user_avatar.dart';
 import 'package:mtbbs/widgets/common/pie_chart.dart';
 import 'package:mtbbs/widgets/common/page_actions.dart';
 import 'package:mtbbs/widgets/bbcode/post_html_widget.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
+import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 import 'package:mtbbs/widgets/layout/page_error_widget.dart';
 import 'package:mtbbs/widgets/layout/state_views.dart';
 import 'package:mtbbs/pages/user/user_uid_picker_dialog.dart';
@@ -51,6 +55,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   bool _loading = true;
   String? _error;
   bool _showRawSignature = false;
+
 
   /// 当前页面作用域的站点会话（跨站点打开时 = 目标站默认账号/游客，只读）
   SiteSession _session = const GlobalSiteSession();
@@ -212,27 +217,34 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Future<void> _toggleFollow() async {
     if (_followLoading) return;
     final fuid = _followFuid.isNotEmpty ? _followFuid : widget.uid;
-    if (fuid.isEmpty || _followFormhash.isEmpty) {
+    if (fuid.isEmpty) {
       showToast('关注信息未就绪，请稍候或刷新');
       return;
     }
+    // formhash 允许为空：export.followUser 会自己拉资料页补齐（吸收上游的
+    // 「幂等短路 + 自动补齐」），这里只要 fuid 可用即可。
+    final hash = _followFormhash.isNotEmpty ? _followFormhash : _followHash;
     final wasFollowing = _isFollowing == true;
+    // 取消关注是破坏性操作，与收藏删除等保持一致：先二次确认
+    if (wasFollowing) {
+      final nickname = _profile?['nickname'] as String? ?? '该用户';
+      final ok = await showConfirmDialog(
+        context,
+        title: '取消关注',
+        message: '确定不再关注 $nickname 吗？',
+        confirmText: '取消关注',
+        danger: true,
+      );
+      if (ok != true || !mounted) return;
+    }
     setState(() {
       _followLoading = true;
       _isFollowing = !wasFollowing; // 乐观更新
     });
     try {
       final data = wasFollowing
-          ? await follow_api.unfollowUser(
-              _dio,
-              fuid: fuid,
-              formhash: _followFormhash,
-            )
-          : await follow_api.followUser(
-              _dio,
-              fuid: fuid,
-              formhash: _followFormhash,
-            );
+          ? await follow_api.unfollowUser(_dio, fuid: fuid, formhash: hash)
+          : await follow_api.followUser(_dio, fuid: fuid, formhash: hash);
       if (!mounted) return;
       if (data['success'] != true) {
         // 服务器拒绝 → 回滚
@@ -252,6 +264,39 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   int? get _uidNum => int.tryParse(widget.uid);
+
+  String get _readLaterId =>
+      ReadLaterItem.buildId(_session.host, 'user', widget.uid);
+
+  bool get _inReadLater =>
+      context.read<ReadLaterProvider>().contains(_readLaterId);
+
+  /// 加入 / 移出「稍后再看」（纯本地，无需登录）
+  void _toggleReadLater() {
+    final provider = context.read<ReadLaterProvider>();
+    if (provider.contains(_readLaterId)) {
+      provider.remove(_readLaterId);
+      showToast('已移出稍后再看');
+    } else {
+      provider.add(
+        ReadLaterItem(
+          id: _readLaterId,
+          host: _session.host,
+          type: 'user',
+          targetId: widget.uid,
+          routePath: '/user/${widget.uid}',
+          title: _profile?['nickname']?.toString() ?? widget.uid,
+          subtitle: '用户空间',
+          url:
+              '${_session.baseUrl}/home.php?mod=space&uid=${widget.uid}&do=profile&from=space',
+          addedAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+      showToast('已加入稍后再看');
+    }
+    if (mounted) setState(() {});
+  }
 
   void _navigateToUid(int uid) =>
       GoRouter.of(context).replace(SiteScope.pathFor(context, '/user/$uid'));
@@ -345,6 +390,22 @@ class _UserProfilePageState extends State<UserProfilePage> {
             loading: _loading,
             copyLabel: '复制个人主页链接',
             extraItems: [
+              PopupMenuItem<String>(
+                value: 'read_later',
+                child: Row(
+                  children: [
+                    Icon(
+                      _inReadLater
+                          ? Icons.bookmark_added_outlined
+                          : Icons.bookmark_add_outlined,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(_inReadLater ? '移出稍后再看' : '稍后再看'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               // 生成分享图（与帖子/评论同一套：预览 → 截图保存）
               if (AppCapabilities.isAvailable(AppCapability.saveImage)) ...[
                 PopupMenuItem<String>(
@@ -417,6 +478,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
             ],
             onExtraSelected: (action) {
               switch (action) {
+                case 'read_later':
+                  _toggleReadLater();
                 case 'save_image':
                   _shareImage();
                 case 'src_follow':
