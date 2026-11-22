@@ -275,7 +275,7 @@ void main() async {
 
   // Android：注册桌面长按快捷方式（「缓存管理」），失败静默
   unawaited(AppShortcuts.install());
-  // Android / 鸿蒙：MCP 悬浮球（实现来自 Bin佬 的 FloatingWindowButton）。
+  // Android / 鸿蒙：MCP 悬浮球（实现来自 Bin 的 FloatingWindowButton）。
   // 点球等价于点常驻通知 —— 都只是弹同一个「MCP 快捷开关」。
   McpFloatingBall.init(onTap: showMcpQuickDialog);
   // 上次开着就恢复（首帧后，避免与启动动画抢主线程；无权限会自动回写开关）

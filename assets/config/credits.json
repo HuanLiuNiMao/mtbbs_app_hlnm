@@ -23,7 +23,7 @@
           "site": "bbs.binmt.cc"
         },
         {
-          "name": "Bin佬（MT 论坛）",
+          "name": "Bin（MT 论坛）",
           "desc": "MCP 悬浮球（拖动 / 二维惯性贴边 / 闲置收起 / 位置记忆）移植自其 FloatingWindowButton，源码来自其分享的 FloatingWindowButtonDemo，README 注明「从 MT 的 FloatingWindowButton 提取」",
           "link": "https://bbs.binmt.cc/"
         },

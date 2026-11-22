@@ -7,7 +7,7 @@ import 'package:mtbbs/core/utils/logger.dart';
 /// MCP 悬浮球的 Dart 侧封装（**Android / 鸿蒙**，其他平台 no-op）。
 ///
 /// 原生实现见 `android/app/src/main/kotlin/.../McpFloatingBall.kt` 与
-/// `McpFloatingBallBridge.kt`。**该功能的实现来自 Bin佬**（MT 论坛
+/// `McpFloatingBallBridge.kt`。**该功能的实现来自 Bin**（MT 论坛
 /// `FloatingWindowButton`）：拖动跟手、二维惯性抛射贴边、闲置收起、位置按比例
 /// 记忆都是他的设计与手感参数。本仓库只做了三处改动：改用不依赖 Material
 /// 组件库的圆球、颜色可配、闲置收起时长可配。
@@ -18,7 +18,9 @@ import 'package:mtbbs/core/utils/logger.dart';
 class McpFloatingBall {
   McpFloatingBall._();
 
-  static const MethodChannel _channel = MethodChannel('mtbbs/mcp_floating_ball');
+  static const MethodChannel _channel = MethodChannel(
+    'mtbbs/mcp_floating_ball',
+  );
 
   /// 与原生 `McpFloatingBall.DEFAULT_COLOR` 保持一致
   static const Color defaultColor = Color(0xFF1E88E5);
@@ -73,9 +75,10 @@ class McpFloatingBall {
     if (!_supported) return false;
     try {
       return await _channel.invokeMethod<bool>('show', {
-        'color': ?color?.toARGB32(),
-        'idleSeconds': ?idleSeconds,
-      }) ?? false;
+            'color': ?color?.toARGB32(),
+            'idleSeconds': ?idleSeconds,
+          }) ??
+          false;
     } catch (e) {
       AppLogger.w('MCP', '显示悬浮球失败: $e');
       return false;

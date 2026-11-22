@@ -68,7 +68,7 @@ class McpServerController extends ChangeNotifier {
   /// 旧版单令牌键（首次运行迁移为"默认令牌"，保住已配置的客户端）
   static const String _kLegacyToken = 'mcpToken';
 
-  // ── 悬浮球（实现来自 Bin佬 的 FloatingWindowButton，见 McpFloatingBall）──
+  // ── 悬浮球（实现来自 Bin 的 FloatingWindowButton，见 McpFloatingBall）──
   /// 悬浮球开关。**独立于服务开关**：服务常在后台跑一整天，若一开服务就
   /// 强行在屏幕上顶个球，等于替用户决定「我要一直看到它」。
   static const String _kBallEnabled = 'mcpFloatingBallEnabled';
@@ -136,7 +136,7 @@ class McpServerController extends ChangeNotifier {
   /// 用户创建的访问令牌（可多个，像 API Key 一样管理）
   List<McpToken> get tokens => List.unmodifiable(_tokens);
 
-  // ── 悬浮球（实现来自 Bin佬 的 FloatingWindowButton，见 McpFloatingBall）──
+  // ── 悬浮球（实现来自 Bin 的 FloatingWindowButton，见 McpFloatingBall）──
   /// 悬浮球开关。默认关闭：没主动开启时不应该有东西盖在别人应用上面。
   bool get floatingBallEnabled => _ballEnabled;
 
@@ -455,7 +455,7 @@ class McpServerController extends ChangeNotifier {
   }
 
   // ==================== 悬浮球 ====================
-  // 实现来自 Bin佬 的 FloatingWindowButton（见 McpFloatingBall）。
+  // 实现来自 Bin 的 FloatingWindowButton（见 McpFloatingBall）。
 
   /// 开 / 关悬浮球。
   ///

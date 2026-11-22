@@ -119,6 +119,53 @@ List<SettingsModel> mcpSettings() {
         icon: Icons.warning_amber,
       ),
 
+    // ── 悬浮球（实现来自 Bin 的 FloatingWindowButton）──
+    HeaderSetting(
+      title: '悬浮球',
+      subtitle:
+          '常驻屏幕的 MCP 快捷入口：点一下调出快捷开关；可拖动、松手自动贴边、'
+          '闲置自动收起',
+    ),
+    SwitchSetting(
+      title: '显示悬浮球',
+      subtitle: '需要「显示在其他应用上层」权限；开启时若未授权会引导去系统设置',
+      icon: Icons.adjust,
+      value: (s) => c.floatingBallEnabled,
+      onChanged: (ctx, s, v) => _toggleFloatingBall(ctx, c, v),
+    ),
+    if (c.floatingBallEnabled) ...[
+      NormalSetting(
+        title: '悬浮球颜色',
+        icon: Icons.palette_outlined,
+        subtitle: '图标颜色按球体亮度自动取黑/白，保证任何配色下都看得清',
+        trailingBuilder: (ctx, s) => Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: c.floatingBallColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: Theme.of(ctx).colorScheme.outlineVariant),
+          ),
+        ),
+        onTap: (ctx, s) async {
+          final picked = await showColorPickDialog(
+            ctx,
+            current: c.floatingBallColor,
+            title: '悬浮球颜色',
+          );
+          if (picked != null) await c.setFloatingBallColor(picked);
+        },
+      ),
+      NormalSetting(
+        title: '自动贴边时间',
+        icon: Icons.timer_outlined,
+        subtitleBuilder: (s) => c.floatingBallIdleSeconds == 0
+            ? '不自动收起'
+            : '${c.floatingBallIdleSeconds} 秒无操作后自动贴边淡化',
+        onTap: (ctx, s) => _editIdleSeconds(ctx, c),
+      ),
+    ],
+
     HeaderSetting(
       title: '跨站点与身份',
       subtitle: '站点是公开信息，跨站点默认开启；用户身份是重点，切换视角默认关闭，需手动开启',
@@ -216,62 +263,6 @@ List<SettingsModel> mcpSettings() {
       },
     ),
 
-    // ── 悬浮球（实现来自 Bin佬 的 FloatingWindowButton）──
-    HeaderSetting(
-      title: '悬浮球',
-      subtitle:
-          '常驻屏幕的 MCP 快捷入口：点一下调出快捷开关；可拖动、松手自动贴边、'
-          '闲置自动收起。功能来自 Bin佬 的 FloatingWindowButton',
-    ),
-    SwitchSetting(
-      title: '显示悬浮球',
-      subtitle: '需要「显示在其他应用上层」权限；开启时若未授权会引导去系统设置',
-      icon: Icons.adjust,
-      value: (s) => c.floatingBallEnabled,
-      onChanged: (ctx, s, v) => _toggleFloatingBall(ctx, c, v),
-    ),
-    if (c.floatingBallEnabled) ...[
-      NormalSetting(
-        title: '悬浮球颜色',
-        icon: Icons.palette_outlined,
-        subtitle: '图标颜色按球体亮度自动取黑/白，保证任何配色下都看得清',
-        trailingBuilder: (ctx, s) => Container(
-          width: 22,
-          height: 22,
-          decoration: BoxDecoration(
-            color: c.floatingBallColor,
-            shape: BoxShape.circle,
-            border: Border.all(color: Theme.of(ctx).colorScheme.outlineVariant),
-          ),
-        ),
-        onTap: (ctx, s) async {
-          final picked = await showColorPickDialog(
-            ctx,
-            current: c.floatingBallColor,
-            title: '悬浮球颜色',
-          );
-          if (picked != null) await c.setFloatingBallColor(picked);
-        },
-      ),
-      NormalSetting(
-        title: '自动贴边时间',
-        icon: Icons.timer_outlined,
-        subtitleBuilder: (s) => c.floatingBallIdleSeconds == 0
-            ? '不自动收起'
-            : '${c.floatingBallIdleSeconds} 秒无操作后自动贴边淡化',
-        onTap: (ctx, s) => _editIdleSeconds(ctx, c),
-      ),
-    ],
-    InfoSetting(
-      title: '本功能来自 Bin佬',
-      icon: Icons.favorite_border,
-      subtitle:
-          '悬浮球的拖动跟手、二维惯性抛射贴边、闲置收起、位置记忆都由 '
-          'Bin佬 的 FloatingWindowButton 实现（MT 论坛 bbs.binmt.cc）。'
-          '本仓库只做了三处改造：改用不依赖 Material 组件库的圆球、颜色可配、'
-          '收起时长可配',
-    ),
-
     HeaderSetting(title: '调用记录', subtitle: '仅保存在内存中，重启后清空'),
     InfoSetting(
       title: '最近调用',
@@ -328,7 +319,7 @@ Future<void> _toggleFloatingBall(
       showToast('悬浮球没能显示，请确认悬浮窗权限');
       return;
     }
-    showToast('悬浮球已开启，本功能来自 Bin佬');
+    showToast('悬浮球已开启');
     return;
   }
   final ok = await c.setFloatingBallEnabled(true);
@@ -336,9 +327,8 @@ Future<void> _toggleFloatingBall(
     showToast('悬浮球没能显示，请确认悬浮窗权限');
     return;
   }
-  // 用户要求：功能处要有一句署名提示。设置页已有一整张说明卡片，
-  // 这里再给一次轻提示 —— 球出现的那一刻用户才真正"看到"这个功能。
-  showToast('悬浮球已开启，本功能来自 Bin佬');
+  // 球真正出现的那一刻给一次轻反馈，让用户确认功能已生效。
+  showToast('悬浮球已开启');
 }
 
 /// 等系统授权页返回后权限生效。
