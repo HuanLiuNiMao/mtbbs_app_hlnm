@@ -48,6 +48,15 @@ List<SettingsModel> aboutPageSettings() {
         value: (s) => s.autoCheckUpdate,
         onChanged: (ctx, s, v) => s.setAutoCheckUpdate(v),
       ),
+    // 「激进跟随更新」：只管新增开关的初始值，不动任何已有设置。
+    // 与「自动检查更新」并列放在关于页，因为它谈的是更新之后的行为。
+    SwitchSetting(
+      title: '激进跟随更新',
+      subtitle: '开启后，每次更新新增的功能开关默认全部打开（已存过的旧开关不受影响）',
+      icon: Icons.bolt,
+      value: (s) => s.aggressiveFollowUpdates,
+      onChanged: (ctx, s, v) => s.setAggressiveFollowUpdates(v),
+    ),
     // 手动检查按渠道策略提供
     if (service.manualCheckEnabled)
       NormalSetting(

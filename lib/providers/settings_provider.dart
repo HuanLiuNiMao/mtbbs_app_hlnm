@@ -95,6 +95,12 @@ class SettingsProvider extends ChangeNotifier {
   /// 开发者选项是否已解锁（关于页图标连点解锁）。解锁后关于页图标单击即进入
   bool _developerMode = false;
 
+  /// 「激进跟随更新」：开启后，本次更新新增的功能开关默认全部打开。
+  ///
+  /// 只影响「设置文档里没有该键」的项，也就是新增开关；用户已经存过值的
+  /// 旧开关永远不会被它改动。
+  bool _aggressiveFollowUpdates = false;
+
   /// 通用错峰间隔（毫秒），头像/预览等批量请求逐个放行
   int _staggerInterval = 40;
 

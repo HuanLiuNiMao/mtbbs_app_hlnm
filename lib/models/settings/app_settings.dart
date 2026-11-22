@@ -7,6 +7,30 @@ import 'package:mtbbs/core/utils/shortcut_helper.dart';
 import 'package:mtbbs/models/managed_item.dart';
 import 'package:mtbbs/models/settings/settings_defaults.dart';
 
+/// 读取一个布尔设置，并区分「用户关掉了」与「这个开关是本次更新才新增的」。
+///
+/// 背景：以前的 `map['x'] as bool? ?? d.x` 把所有缺失键都当成「用代码默认值」。
+/// 于是「激进跟随更新」没法实现——它需要知道某个键到底是**用户存的**还是
+/// **压根没存过**（没存过 = 老版本没有这个功能 = 这是新增开关）。
+///
+/// 三个分支：
+/// - 键存在 → 用户的选择，原样返回（旧开关永远不会被激进模式改动）；
+/// - 键缺失 + 激进模式开 → 新功能，默认开 `true`；
+/// - 键缺失 + 激进模式关 → 新功能，用代码默认值 [fallback]。
+///
+/// 注意 `map` 里存的是 JSON，键可能来自更老的版本，值类型不可信，
+/// 因此只接受真正的 `bool`，其它类型按「没存过」处理。
+bool boolOrNewFeature(
+  Map<String, dynamic> map,
+  String key, {
+  required bool fallback,
+  required bool aggressive,
+}) {
+  final raw = map[key];
+  if (raw is bool) return raw;
+  return aggressive || fallback;
+}
+
 /// 应用设置（与站点、账号无关）
 ///
 /// 持久化为一份 JSON 文档，见 `SettingsRepository`。
@@ -93,18 +117,25 @@ class AppSettings {
   factory AppSettings.fromMap(Map<String, dynamic> map) {
     Map<String, dynamic> sub(String key) =>
         (map[key] as Map?)?.cast<String, dynamic>() ?? const {};
+    final advancedMap = sub('advanced');
+    // 必须先算出「激进跟随更新」，再解析其它子文档：子文档的 fromMap 要用它
+    // 区分「用户主动存的 false」与「这个键本次更新才出现」。
+    final aggressive = advancedMap['aggressiveFollowUpdates'] == true;
     return AppSettings(
       schemaVersion: (map['schemaVersion'] as num?)?.toInt() ?? 1,
       currentSiteHost: map['currentSiteHost']?.toString() ?? '',
-      appearance: AppearanceSettings.fromMap(sub('appearance')),
-      startup: StartupSettings.fromMap(sub('startup')),
-      reading: ReadingSettings.fromMap(sub('reading')),
-      editor: EditorSettings.fromMap(sub('editor')),
-      storage: StorageSettings.fromMap(sub('storage')),
-      notice: NoticeSettings.fromMap(sub('notice')),
-      share: ShareSettings.fromMap(sub('share')),
-      history: HistorySettings.fromMap(sub('history')),
-      advanced: AdvancedSettings.fromMap(sub('advanced')),
+      appearance: AppearanceSettings.fromMap(
+        sub('appearance'),
+        aggressive: aggressive,
+      ),
+      startup: StartupSettings.fromMap(sub('startup'), aggressive: aggressive),
+      reading: ReadingSettings.fromMap(sub('reading'), aggressive: aggressive),
+      editor: EditorSettings.fromMap(sub('editor'), aggressive: aggressive),
+      storage: StorageSettings.fromMap(sub('storage'), aggressive: aggressive),
+      notice: NoticeSettings.fromMap(sub('notice'), aggressive: aggressive),
+      share: ShareSettings.fromMap(sub('share'), aggressive: aggressive),
+      history: HistorySettings.fromMap(sub('history'), aggressive: aggressive),
+      advanced: AdvancedSettings.fromMap(advancedMap),
     );
   }
 }
@@ -154,13 +185,26 @@ class AppearanceSettings {
     'maxImageWidth': maxImageWidth,
   };
 
-  factory AppearanceSettings.fromMap(Map<String, dynamic> map) {
+  factory AppearanceSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = AppearanceSettings.defaults();
     return AppearanceSettings(
       themeMode: map['themeMode']?.toString() ?? d.themeMode,
       seedColor: (map['seedColor'] as num?)?.toInt() ?? d.seedColor,
-      pureBlackTheme: map['pureBlackTheme'] as bool? ?? d.pureBlackTheme,
-      showAvatars: map['showAvatars'] as bool? ?? d.showAvatars,
+      pureBlackTheme: boolOrNewFeature(
+        map,
+        'pureBlackTheme',
+        fallback: d.pureBlackTheme,
+        aggressive: aggressive,
+      ),
+      showAvatars: boolOrNewFeature(
+        map,
+        'showAvatars',
+        fallback: d.showAvatars,
+        aggressive: aggressive,
+      ),
       avatarSizeMode: map['avatarSizeMode']?.toString() ?? d.avatarSizeMode,
       maxImageWidth: (map['maxImageWidth'] as num?)?.toInt() ?? d.maxImageWidth,
     );
@@ -206,7 +250,10 @@ class StartupSettings {
     'tabUsage': tabUsage,
   };
 
-  factory StartupSettings.fromMap(Map<String, dynamic> map) {
+  factory StartupSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = StartupSettings.defaults();
     List<ManagedItem> items(String key, List<ManagedItem> fallback) {
       final raw = map[key];
@@ -233,7 +280,12 @@ class StartupSettings {
     return StartupSettings(
       defaultTabIndex:
           (map['defaultTabIndex'] as num?)?.toInt() ?? d.defaultTabIndex,
-      doubleBackExit: map['doubleBackExit'] as bool? ?? d.doubleBackExit,
+      doubleBackExit: boolOrNewFeature(
+        map,
+        'doubleBackExit',
+        fallback: d.doubleBackExit,
+        aggressive: aggressive,
+      ),
       guideTabs: items(
         'guideTabs',
         d.guideTabs,
@@ -246,7 +298,12 @@ class StartupSettings {
         'noticeTabs',
         d.noticeTabs,
       ).where((e) => noticeTabIds.contains(e.id)).toList(),
-      autoFrequentTabs: map['autoFrequentTabs'] as bool? ?? d.autoFrequentTabs,
+      autoFrequentTabs: boolOrNewFeature(
+        map,
+        'autoFrequentTabs',
+        fallback: d.autoFrequentTabs,
+        aggressive: aggressive,
+      ),
       tabUsage: usage,
     );
   }
@@ -283,7 +340,10 @@ class ReadingSettings {
     'disabledBbcodeTags': disabledBbcodeTags.toList(),
   };
 
-  factory ReadingSettings.fromMap(Map<String, dynamic> map) {
+  factory ReadingSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = ReadingSettings.defaults();
     final tags = map['disabledBbcodeTags'];
     return ReadingSettings(
@@ -291,7 +351,12 @@ class ReadingSettings {
       codeBlockMaxLines:
           (map['codeBlockMaxLines'] as num?)?.toInt() ?? d.codeBlockMaxLines,
       ratingMaxRows: (map['ratingMaxRows'] as num?)?.toInt() ?? d.ratingMaxRows,
-      autoDetectUrls: map['autoDetectUrls'] as bool? ?? d.autoDetectUrls,
+      autoDetectUrls: boolOrNewFeature(
+        map,
+        'autoDetectUrls',
+        fallback: d.autoDetectUrls,
+        aggressive: aggressive,
+      ),
       disabledBbcodeTags: tags is List
           ? tags.map((e) => e.toString()).toSet()
           : d.disabledBbcodeTags,
@@ -375,7 +440,10 @@ class EditorSettings {
     'maxAutoSnapshots': maxAutoSnapshots,
   };
 
-  factory EditorSettings.fromMap(Map<String, dynamic> map) {
+  factory EditorSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = EditorSettings.defaults();
     List<ManagedItem> items(String key, List<ManagedItem> fallback) {
       final raw = map[key];
@@ -394,12 +462,24 @@ class EditorSettings {
     }
 
     return EditorSettings(
-      threadMiniEditor: map['threadMiniEditor'] as bool? ?? d.threadMiniEditor,
-      editorStartupCheck:
-          map['editorStartupCheck'] as bool? ?? d.editorStartupCheck,
-      toolbarShortcutWhenHidden:
-          map['toolbarShortcutWhenHidden'] as bool? ??
-          d.toolbarShortcutWhenHidden,
+      threadMiniEditor: boolOrNewFeature(
+        map,
+        'threadMiniEditor',
+        fallback: d.threadMiniEditor,
+        aggressive: aggressive,
+      ),
+      editorStartupCheck: boolOrNewFeature(
+        map,
+        'editorStartupCheck',
+        fallback: d.editorStartupCheck,
+        aggressive: aggressive,
+      ),
+      toolbarShortcutWhenHidden: boolOrNewFeature(
+        map,
+        'toolbarShortcutWhenHidden',
+        fallback: d.toolbarShortcutWhenHidden,
+        aggressive: aggressive,
+      ),
       quickReplies: items('quickReplies', d.quickReplies),
       toolbarItems: items('toolbarItems', d.toolbarItems),
       customFormats: items('customFormats', d.customFormats),
@@ -478,7 +558,10 @@ class StorageSettings {
     'docProviderEnabled': docProviderEnabled,
   };
 
-  factory StorageSettings.fromMap(Map<String, dynamic> map) {
+  factory StorageSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = StorageSettings.defaults();
     return StorageSettings(
       avatarCacheDays:
@@ -491,15 +574,23 @@ class StorageSettings {
           (map['medalCacheDays'] as num?)?.toInt() ?? d.medalCacheDays,
       threadCacheDays:
           (map['threadCacheDays'] as num?)?.toInt() ?? d.threadCacheDays,
-      threadCacheEnabled:
-          map['threadCacheEnabled'] as bool? ?? d.threadCacheEnabled,
+      threadCacheEnabled: boolOrNewFeature(
+        map,
+        'threadCacheEnabled',
+        fallback: d.threadCacheEnabled,
+        aggressive: aggressive,
+      ),
       threadCacheMaxVersions:
           (map['threadCacheMaxVersions'] as num?)?.toInt() ??
           d.threadCacheMaxVersions,
       threadCacheMaxKB:
           (map['threadCacheMaxKB'] as num?)?.toInt() ?? d.threadCacheMaxKB,
-      docProviderEnabled:
-          map['docProviderEnabled'] as bool? ?? d.docProviderEnabled,
+      docProviderEnabled: boolOrNewFeature(
+        map,
+        'docProviderEnabled',
+        fallback: d.docProviderEnabled,
+        aggressive: aggressive,
+      ),
     );
   }
 }
@@ -527,12 +618,20 @@ class NoticeSettings {
     'badgeGroups': badgeGroups.toList(),
   };
 
-  factory NoticeSettings.fromMap(Map<String, dynamic> map) {
+  factory NoticeSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = NoticeSettings.defaults();
     final groups = map['badgeGroups'];
     return NoticeSettings(
       badgeMode: (map['badgeMode'] as num?)?.toInt() ?? d.badgeMode,
-      checkEnabled: map['checkEnabled'] as bool? ?? d.checkEnabled,
+      checkEnabled: boolOrNewFeature(
+        map,
+        'checkEnabled',
+        fallback: d.checkEnabled,
+        aggressive: aggressive,
+      ),
       badgeGroups: groups is List
           ? groups
                 .map((e) => e.toString())
@@ -557,11 +656,19 @@ class ShareSettings {
     'contentOnly': contentOnly,
   };
 
-  factory ShareSettings.fromMap(Map<String, dynamic> map) {
+  factory ShareSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = ShareSettings.defaults();
     return ShareSettings(
       maxHeight: (map['maxHeight'] as num?)?.toInt() ?? d.maxHeight,
-      contentOnly: map['contentOnly'] as bool? ?? d.contentOnly,
+      contentOnly: boolOrNewFeature(
+        map,
+        'contentOnly',
+        fallback: d.contentOnly,
+        aggressive: aggressive,
+      ),
     );
   }
 }
@@ -605,7 +712,10 @@ class HistorySettings {
     'titleFormatReply': titleFormatReply,
   };
 
-  factory HistorySettings.fromMap(Map<String, dynamic> map) {
+  factory HistorySettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = HistorySettings.defaults();
     return HistorySettings(
       maxCount: (map['maxCount'] as num?)?.toInt() ?? d.maxCount,
@@ -624,6 +734,14 @@ class HistorySettings {
 
 class AdvancedSettings {
   final bool autoCheckUpdate;
+
+  /// 「激进跟随更新」：更新新增的功能开关**默认就开着**。
+  ///
+  /// 只影响「本次更新才出现的设置项」，用户已经动过的旧开关一律不动。
+  /// 实现上靠「设置文档里有没有这个键」判定新旧（见 [boolOrNewFeature]）——
+  /// 用法比维护一份 schemaVersion 迁移表简单得多，也不会漏项。
+  final bool aggressiveFollowUpdates;
+
   final String skippedUpdateVersion;
 
   /// 上次检查更新的时间（Unix 秒，0 = 从未检查）；用于 1 小时启动限流
@@ -645,6 +763,7 @@ class AdvancedSettings {
     required this.lastUpdateCheckAt,
     required this.developerMode,
     this.updateChannel = '',
+    this.aggressiveFollowUpdates = false,
   });
 
   factory AdvancedSettings.defaults() => const AdvancedSettings(
@@ -653,6 +772,7 @@ class AdvancedSettings {
     lastUpdateCheckAt: 0,
     developerMode: false,
     updateChannel: '',
+    aggressiveFollowUpdates: false,
   );
 
   Map<String, dynamic> toMap() => {
@@ -661,18 +781,34 @@ class AdvancedSettings {
     'lastUpdateCheckAt': lastUpdateCheckAt,
     'developerMode': developerMode,
     'updateChannel': updateChannel,
+    'aggressiveFollowUpdates': aggressiveFollowUpdates,
   };
 
-  factory AdvancedSettings.fromMap(Map<String, dynamic> map) {
+  factory AdvancedSettings.fromMap(
+    Map<String, dynamic> map, {
+    bool aggressive = false,
+  }) {
     final d = AdvancedSettings.defaults();
     return AdvancedSettings(
-      autoCheckUpdate: map['autoCheckUpdate'] as bool? ?? d.autoCheckUpdate,
+      autoCheckUpdate: boolOrNewFeature(
+        map,
+        'autoCheckUpdate',
+        fallback: d.autoCheckUpdate,
+        aggressive: aggressive,
+      ),
       skippedUpdateVersion:
           map['skippedUpdateVersion']?.toString() ?? d.skippedUpdateVersion,
       lastUpdateCheckAt:
           (map['lastUpdateCheckAt'] as num?)?.toInt() ?? d.lastUpdateCheckAt,
-      developerMode: map['developerMode'] as bool? ?? d.developerMode,
+      developerMode: boolOrNewFeature(
+        map,
+        'developerMode',
+        fallback: d.developerMode,
+        aggressive: aggressive,
+      ),
       updateChannel: map['updateChannel']?.toString() ?? d.updateChannel,
+      aggressiveFollowUpdates:
+          map['aggressiveFollowUpdates'] as bool? ?? d.aggressiveFollowUpdates,
     );
   }
 }

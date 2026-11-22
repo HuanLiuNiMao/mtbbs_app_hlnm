@@ -74,6 +74,9 @@ extension SettingsAccessors on SettingsProvider {
   /// 开发者选项是否已解锁
   bool get developerMode => _developerMode;
 
+  /// 「激进跟随更新」：开启后，更新新增的功能开关默认全部打开
+  bool get aggressiveFollowUpdates => _aggressiveFollowUpdates;
+
   /// 该页面是否仍由 App 接管（当前站点；false = 已改为走内置浏览器）
   bool isAppPageEnabled(String id) =>
       !_currentSite.pages.disabledPageIds.contains(id);

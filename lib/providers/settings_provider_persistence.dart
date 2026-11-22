@@ -247,6 +247,7 @@ extension SettingsPersistence on SettingsProvider {
     _skippedUpdateVersion = a.advanced.skippedUpdateVersion;
     _lastUpdateCheckAt = a.advanced.lastUpdateCheckAt;
     _developerMode = a.advanced.developerMode;
+    _aggressiveFollowUpdates = a.advanced.aggressiveFollowUpdates;
     // 备份/恢复设置（勾选项、Web 服务器、日志保留天数）：已在 load() 里
     // 通过 `BackupSettingsStore.instance.load()` 读好，这里只取缓存。
     // 漏了这一行会表现为「重启后勾选状态与服务器配置全丢」。
@@ -331,6 +332,7 @@ extension SettingsPersistence on SettingsProvider {
       skippedUpdateVersion: _skippedUpdateVersion,
       lastUpdateCheckAt: _lastUpdateCheckAt,
       developerMode: _developerMode,
+      aggressiveFollowUpdates: _aggressiveFollowUpdates,
     ),
   );
 
@@ -425,6 +427,18 @@ extension SettingsPersistence on SettingsProvider {
 
   Future<void> setDeveloperMode(bool enabled) async {
     _developerMode = enabled;
+    await _persistApp();
+    _notify();
+  }
+
+  /// 切换「激进跟随更新」。
+  ///
+  /// 注意它只在**下次解析设置文档**时生效（下次启动或恢复备份后重建），
+  /// 不会反过来改动本次运行已经读进内存的开关——否则打开开关的一瞬间
+  /// 会把你当前的设置全部改写一遍，那就不是「跟随更新」而是「重置设置」了。
+  Future<void> setAggressiveFollowUpdates(bool enabled) async {
+    if (_aggressiveFollowUpdates == enabled) return;
+    _aggressiveFollowUpdates = enabled;
     await _persistApp();
     _notify();
   }
