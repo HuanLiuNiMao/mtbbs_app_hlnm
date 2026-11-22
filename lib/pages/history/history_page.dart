@@ -8,6 +8,7 @@ import 'package:mtbbs/providers/read_later_provider.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/models/browse_record.dart';
 import 'package:mtbbs/models/read_later_item.dart';
+import 'package:mtbbs/core/utils/clipboard_helper.dart';
 import 'package:mtbbs/core/utils/formatters.dart';
 import 'package:mtbbs/core/utils/history_filter.dart';
 import 'package:mtbbs/widgets/common/filter_search_field.dart';
@@ -467,6 +468,11 @@ class _RecordDetailSheet extends StatelessWidget {
                       record.effectiveHost,
                     ),
                   ),
+                // 用户记录的 UID 可点击复制：与用户主页头部那颗 UID 同一套手势与
+                // 提示文案（`user_profile_sections.dart` 的 `_buildHeader`），
+                // 复制 uid 常用来去匿名访问弹窗 / 浏览器里粘。
+                if (record.type == 'user' && record.userUid.isNotEmpty)
+                  _copyableInfoRow(context, 'UID', record.userUid),
                 _infoRow(context, '路由', record.routePath),
                 _infoRow(context, 'ID', record.id),
                 _infoRow(context, '时间', formatDateTimeFull(record.timestamp)),
@@ -483,8 +489,17 @@ class _RecordDetailSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
+                  // `uid` 已在上面用可复制行展示过，这里跳过以免同一个值出现两次；
+                  // 其它字段照旧全量 dump（调试时仍能看到记录的真实结构）。
                   for (final entry in info.entries)
-                    _infoRow(context, entry.key, entry.value?.toString() ?? ''),
+                    if (!(record.type == 'user' &&
+                        entry.key == 'uid' &&
+                        record.userUid.isNotEmpty))
+                      _infoRow(
+                        context,
+                        entry.key,
+                        entry.value?.toString() ?? '',
+                      ),
                 ],
               ],
             ),
@@ -567,6 +582,56 @@ class _RecordDetailSheet extends StatelessWidget {
           ),
           Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
         ],
+      ),
+    );
+  }
+
+  /// 可点击复制的信息行（目前只用于用户记录的 UID）。
+  ///
+  /// 交互与提示文案对齐用户主页头部：整行可点、右侧带小复制图标、
+  /// 成功提示 `已复制 UID: xxx`，失败提示「复制失败」——
+  /// **不能**无条件提示成功（见 `docs/07` #107）。
+  Widget _copyableInfoRow(BuildContext context, String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () async {
+        final ok = await ClipboardHelper.write(value);
+        if (!context.mounted) return;
+        showToast(ok ? '已复制 $label: $value' : '复制失败');
+      },
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 56,
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
+              ),
+            ),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      value,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.copy_rounded,
+                    size: 12,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

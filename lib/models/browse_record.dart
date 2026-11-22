@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:mtbbs/core/utils/uid_util.dart';
+
 /// 浏览记录
 ///
 /// [info] 存储类型相关的原始数据，标题通过 [displayTitle] 动态渲染。
@@ -74,6 +76,33 @@ class BrowseRecord {
   bool belongsTo(String siteHost) {
     final h = effectiveHost;
     return h.isEmpty || h == siteHost;
+  }
+
+  /// 合法 uid 只有数字（`self` / 空串都不算）。
+  static final RegExp _uidDigits = RegExp(r'^\d+$');
+
+  /// 记录指向的用户 uid（`type=user` 时用于「复制 UID」）。
+  ///
+  /// 三级兜底，任何一级能取到就返回，都取不到返回空串：
+  /// 1. `info.uid` —— 新记录都有；
+  /// 2. `routePath` 的 `/user/<数字>` —— 记录写入时一定会带路由；
+  /// 3. `info.url` 里的空间链接 —— 兼容 `space-uid-N` / `mod=space&uid=N`
+  ///    等各模板写法（走 [uidFromHref] 统一识别）。
+  ///
+  /// 只返回纯数字：自己的主页记录写的是 `uid: 'self'`，复制它没有意义，
+  /// 让它继续往下兜底（`/user/self`、`uid=self` 也匹配不到，最终空串）。
+  ///
+  /// 不做 `type` 判断：是否展示由调用方决定（见浏览记录详情弹窗），
+  /// 这样帖子记录若将来也想「复制楼主 UID」可以直接复用。
+  String get userUid {
+    final fromInfo = info['uid']?.toString().trim() ?? '';
+    if (_uidDigits.hasMatch(fromInfo)) return fromInfo;
+
+    final routeMatch = RegExp(r'^/user/(\d+)').firstMatch(routePath.trim());
+    if (routeMatch != null) return routeMatch.group(1)!;
+
+    final fromUrl = uidFromHref(info['url']?.toString()) ?? '';
+    return _uidDigits.hasMatch(fromUrl) ? fromUrl : '';
   }
 
   /// 类型的中文名（列表角标、详情弹窗、搜索匹配共用同一份文案）
