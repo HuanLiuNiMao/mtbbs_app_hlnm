@@ -34,7 +34,10 @@ List<SettingsModel> mcpSettings() {
       subtitle: '三步接入 Trae / Claude / Cursor，含可复制的配置片段',
       onTap: (ctx, s) => showMcpHelpSheet(ctx, c),
     ),
-    HeaderSetting(title: '服务', subtitle: '只读；默认仅监听本机 127.0.0.1（可开启局域网访问），并要求访问令牌'),
+    HeaderSetting(
+      title: '服务',
+      subtitle: '只读；默认仅监听本机 127.0.0.1（可开启局域网访问），并要求访问令牌',
+    ),
     SwitchSetting(
       title: '启用 MCP 服务',
       subtitle: '让 AI 客户端读取论坛内容与 App 信息',
@@ -129,7 +132,8 @@ List<SettingsModel> mcpSettings() {
     ),
     SwitchSetting(
       title: '允许切换用户视角',
-      subtitle: '默认关闭：开启后 AI 可用「account=账号名」以该站点其它已登录账号的 Cookie 只读访问，能读到该账号可见的内容',
+      subtitle:
+          '默认关闭：开启后 AI 可用「account=账号名」以该站点其它已登录账号的 Cookie 只读访问，能读到该账号可见的内容',
       icon: Icons.manage_accounts,
       value: (s) => c.allowAccountSwitch,
       onChanged: (ctx, s, v) async {
@@ -215,7 +219,8 @@ List<SettingsModel> mcpSettings() {
     // ── 悬浮球（实现来自 Bin佬 的 FloatingWindowButton）──
     HeaderSetting(
       title: '悬浮球',
-      subtitle: '常驻屏幕的 MCP 快捷入口：点一下调出快捷开关；可拖动、松手自动贴边、'
+      subtitle:
+          '常驻屏幕的 MCP 快捷入口：点一下调出快捷开关；可拖动、松手自动贴边、'
           '闲置自动收起。功能来自 Bin佬 的 FloatingWindowButton',
     ),
     SwitchSetting(
@@ -236,9 +241,7 @@ List<SettingsModel> mcpSettings() {
           decoration: BoxDecoration(
             color: c.floatingBallColor,
             shape: BoxShape.circle,
-            border: Border.all(
-              color: Theme.of(ctx).colorScheme.outlineVariant,
-            ),
+            border: Border.all(color: Theme.of(ctx).colorScheme.outlineVariant),
           ),
         ),
         onTap: (ctx, s) async {
@@ -262,7 +265,8 @@ List<SettingsModel> mcpSettings() {
     InfoSetting(
       title: '本功能来自 Bin佬',
       icon: Icons.favorite_border,
-      subtitle: '悬浮球的拖动跟手、二维惯性抛射贴边、闲置收起、位置记忆都由 '
+      subtitle:
+          '悬浮球的拖动跟手、二维惯性抛射贴边、闲置收起、位置记忆都由 '
           'Bin佬 的 FloatingWindowButton 实现（MT 论坛 bbs.binmt.cc）。'
           '本仓库只做了三处改造：改用不依赖 Material 组件库的圆球、颜色可配、'
           '收起时长可配',
@@ -305,11 +309,26 @@ Future<void> _toggleFloatingBall(
       title: '需要悬浮窗权限',
       message:
           '悬浮球要显示在别的应用上面，需要系统授予「显示在其他应用上层」。\n\n'
-          '点「去授权」后请在系统页面里打开开关，然后返回本页再点一次开关即可。',
+          '点「去授权」后请在系统页面里打开开关，然后返回本页，会自动为你开启。',
       confirmText: '去授权',
     );
     if (go != true) return;
     await McpFloatingBall.requestPermission();
+    // 从系统授权页回来后自动再试一次：不让用户手动再点一次开关。
+    // 部分 ROM 的授权页会先把本页置于后台，等回到前台再判定权限。
+    if (!context.mounted) return;
+    final granted = await _waitOverlayPermission();
+    if (!granted) {
+      if (context.mounted) showToast('还没有授予悬浮窗权限，可稍后再试');
+      return;
+    }
+    final ok2 = await c.setFloatingBallEnabled(true);
+    if (!context.mounted) return;
+    if (!ok2) {
+      showToast('悬浮球没能显示，请确认悬浮窗权限');
+      return;
+    }
+    showToast('悬浮球已开启，本功能来自 Bin佬');
     return;
   }
   final ok = await c.setFloatingBallEnabled(true);
@@ -318,8 +337,21 @@ Future<void> _toggleFloatingBall(
     return;
   }
   // 用户要求：功能处要有一句署名提示。设置页已有一整张说明卡片，
-  // 这里再给一次轻提示 —— 球出现的那一刻用户才真正“看到”这个功能。
+  // 这里再给一次轻提示 —— 球出现的那一刻用户才真正"看到"这个功能。
   showToast('悬浮球已开启，本功能来自 Bin佬');
+}
+
+/// 等系统授权页返回后权限生效。
+///
+/// 用户点了「去授权」会离开本页；`requestPermission` 本身是立即返回的
+/// （只负责拉起系统页面），所以这里轮询一小段时间，等 `canDrawOverlays`
+/// 变成 true 就立刻收手 —— 典型是 1~2 次就拿到，最多等约 3 秒。
+Future<bool> _waitOverlayPermission() async {
+  for (var i = 0; i < 12; i++) {
+    if (await McpFloatingBall.hasPermission()) return true;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  return false;
 }
 
 /// 编辑「闲置多少秒后自动贴边收起」。

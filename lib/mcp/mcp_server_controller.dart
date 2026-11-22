@@ -73,6 +73,7 @@ class McpServerController extends ChangeNotifier {
   /// 强行在屏幕上顶个球，等于替用户决定「我要一直看到它」。
   static const String _kBallEnabled = 'mcpFloatingBallEnabled';
   static const String _kBallColor = 'mcpFloatingBallColor';
+
   /// 闲置多少秒后自动贴边收起；0 = 不自动收起
   static const String _kBallIdleSeconds = 'mcpFloatingBallIdleSeconds';
 
@@ -90,8 +91,10 @@ class McpServerController extends ChangeNotifier {
 
   /// 悬浮球是否开启（与 [_enabled] 无关）
   bool _ballEnabled = false;
+
   /// 悬浮球颜色（0xAARRGGBB）
   int _ballColor = McpFloatingBall.defaultColor.toARGB32();
+
   /// 闲置收起秒数，0 = 不自动收起
   int _ballIdleSeconds = McpFloatingBall.defaultIdleSeconds;
 
@@ -460,10 +463,19 @@ class McpServerController extends ChangeNotifier {
   /// 开启时若没有悬浮窗权限，这里**不静默失败**：把结果告诉调用方（设置页会
   /// 弹窗引导去授权）。
   Future<bool> setFloatingBallEnabled(bool value) async {
-    if (_ballEnabled == value) return true;
-    _ballEnabled = value;
-    await _db.setSettingBool(_kBallEnabled, value);
-    notifyListeners();
+    // 先等配置装载完（同 restoreFloatingBall 的理由）：
+    // 否则初始 _ballEnabled=false 且用户点的也是 false 时会提前 return。
+    await load();
+    if (_ballEnabled == value) {
+      // 值没变，但可能是「上次开着、球却因为没权限没出现」的状态：
+      // 用户此时点开关是希望它出来，因此 true 仍要尝试一次显示，
+      // 而不是直接返回 true 让 UI 显示"已开启"却没球。
+      if (!value) return true;
+    } else {
+      _ballEnabled = value;
+      await _db.setSettingBool(_kBallEnabled, value);
+      notifyListeners();
+    }
     if (!value) {
       await McpFloatingBall.hide();
       return true;
@@ -473,10 +485,18 @@ class McpServerController extends ChangeNotifier {
       // 由设置页在用户点亮开关后立即引导，避免在后台自己弹系统页面。
       return false;
     }
-    return McpFloatingBall.show(
+    final shown = await McpFloatingBall.show(
       color: floatingBallColor,
       idleSeconds: _ballIdleSeconds,
     );
+    if (!shown) {
+      // 权限有、却 addView 失败（ROM 限制 / 服务被禁用等）：把开关回退为关，
+      // 避免设置页显示"已开启"而屏幕上什么都没有 —— 这类"假开启"最难排查。
+      _ballEnabled = false;
+      await _db.setSettingBool(_kBallEnabled, false);
+      notifyListeners();
+    }
+    return shown;
   }
 
   /// 悬浮球颜色（立即生效，无需重启）
@@ -504,6 +524,10 @@ class McpServerController extends ChangeNotifier {
   /// 仅在「用户上次开着 + 权限仍在」时才会真的显示；权限被系统撤销时
   /// 自动把开关回写为关，避免设置页显示「已开启」但屏幕上什么都没有。
   Future<void> restoreFloatingBall() async {
+    // 等配置装载完成：`main.dart` 里 bootstrap() 是 unawaited 起的，
+    // 首帧回调可能比 load() 先跑到这里 —— 那时 _ballEnabled 还是默认
+    // false，会直接 return，表现就是「上次开着悬浮球，这次启动什么也没有」。
+    await load();
     if (!_ballEnabled) return;
     if (!await McpFloatingBall.hasPermission()) {
       _ballEnabled = false;

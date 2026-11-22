@@ -41,6 +41,25 @@ object McpFloatingBallBridge {
     /** 悬浮窗授权请求码（与通知权限 8765 区分开） */
     const val OVERLAY_PERMISSION_REQUEST_CODE = 8766
 
+    /**
+     * 读取 `0xAARRGGBB` 形式的颜色参数。
+     *
+     * Flutter 的 `StandardMessageCodec` 按数值大小选编码：`0xFF1E88E5` = 4279523045
+     * 超出 `Int` 上限（2147483647），会被编码成 INT64。若这里按 `Int` 取，
+     * `call.argument<Int>()` 会抛 ClassCastException —— 表现为**每次 show 都失败、
+     * 悬浮球永远不出现**（Dart 侧把异常 catch 掉了，看不出原因）。
+     *
+     * 因此统一按 [Number] 取，再截成 32 位：Kotlin 里 `Long.toInt()` 是取低 32 位，
+     * 正好还原 ARGB 的位模式。
+     */
+    private fun readArgb(value: Any?): Int? = when (value) {
+        null -> null
+        is Int -> value
+        is Number -> value.toInt()
+        is String -> value.toLongOrNull()?.toInt()
+        else -> null
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var ball: McpFloatingBall? = null
@@ -62,9 +81,9 @@ object McpFloatingBallBridge {
                 "show" -> {
                     // 先记住配置：show 与 setColor 的调用顺序不确定（Dart 侧并行发），
                     // 这里在创建时就用最近一次的值，避免先短暂显示成默认色
-                    call.argument<Int>("color")?.let { lastColor = it }
-                    call.argument<Int>("idleSeconds")?.let {
-                        lastIdleMillis = maxOf(0, it) * 1000L
+                    readArgb(call.argument<Any>("color"))?.let { lastColor = it }
+                    call.argument<Number>("idleSeconds")?.let {
+                        lastIdleMillis = maxOf(0, it.toInt()) * 1000L
                     }
                     runOnMain {
                         result.success(showBall(appContext))
@@ -73,7 +92,8 @@ object McpFloatingBallBridge {
                 "hide" -> runOnMain { result.success(hideBall()) }
                 "isShowing" -> result.success(ball != null)
                 "setColor" -> {
-                    val color = call.argument<Int>("color") ?: McpFloatingBall.DEFAULT_COLOR
+                    val color = readArgb(call.argument<Any>("color"))
+                        ?: McpFloatingBall.DEFAULT_COLOR
                     lastColor = color
                     runOnMain {
                         ball?.setBallColor(color)
@@ -81,7 +101,7 @@ object McpFloatingBallBridge {
                     }
                 }
                 "setIdleSeconds" -> {
-                    val seconds = call.argument<Int>("seconds")
+                    val seconds = call.argument<Number>("seconds")?.toInt()
                         ?: McpFloatingBall.DEFAULT_IDLE_SECONDS
                     lastIdleMillis = maxOf(0, seconds) * 1000L
                     runOnMain {
