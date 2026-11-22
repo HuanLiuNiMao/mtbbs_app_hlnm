@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mtbbs/config/app_typography.dart';
 import 'package:mtbbs/core/utils/clipboard_helper.dart';
 import 'package:mtbbs/mcp/mcp.dart';
+import 'package:mtbbs/mcp/mcp_floating_ball.dart';
 import 'package:mtbbs/mcp/tools/mcp_tool_definition.dart';
 import 'package:mtbbs/mcp/tools/mcp_tool_registry.dart';
 import 'package:mtbbs/pages/settings/mcp_help_sheet.dart';
@@ -10,6 +11,7 @@ import 'package:mtbbs/pages/settings/models/settings_model.dart';
 import 'package:mtbbs/pages/settings/widgets/dialogs.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
+import 'package:mtbbs/widgets/dialog/color_pick_dialog.dart';
 
 /// MCP 服务组设置项（一级设置分组）
 ///
@@ -210,6 +212,62 @@ List<SettingsModel> mcpSettings() {
       },
     ),
 
+    // ── 悬浮球（实现来自 Bin佬 的 FloatingWindowButton）──
+    HeaderSetting(
+      title: '悬浮球',
+      subtitle: '常驻屏幕的 MCP 快捷入口：点一下调出快捷开关；可拖动、松手自动贴边、'
+          '闲置自动收起。功能来自 Bin佬 的 FloatingWindowButton',
+    ),
+    SwitchSetting(
+      title: '显示悬浮球',
+      subtitle: '需要「显示在其他应用上层」权限；开启时若未授权会引导去系统设置',
+      icon: Icons.adjust,
+      value: (s) => c.floatingBallEnabled,
+      onChanged: (ctx, s, v) => _toggleFloatingBall(ctx, c, v),
+    ),
+    if (c.floatingBallEnabled) ...[
+      NormalSetting(
+        title: '悬浮球颜色',
+        icon: Icons.palette_outlined,
+        subtitle: '图标颜色按球体亮度自动取黑/白，保证任何配色下都看得清',
+        trailingBuilder: (ctx, s) => Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: c.floatingBallColor,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Theme.of(ctx).colorScheme.outlineVariant,
+            ),
+          ),
+        ),
+        onTap: (ctx, s) async {
+          final picked = await showColorPickDialog(
+            ctx,
+            current: c.floatingBallColor,
+            title: '悬浮球颜色',
+          );
+          if (picked != null) await c.setFloatingBallColor(picked);
+        },
+      ),
+      NormalSetting(
+        title: '自动贴边时间',
+        icon: Icons.timer_outlined,
+        subtitleBuilder: (s) => c.floatingBallIdleSeconds == 0
+            ? '不自动收起'
+            : '${c.floatingBallIdleSeconds} 秒无操作后自动贴边淡化',
+        onTap: (ctx, s) => _editIdleSeconds(ctx, c),
+      ),
+    ],
+    InfoSetting(
+      title: '本功能来自 Bin佬',
+      icon: Icons.favorite_border,
+      subtitle: '悬浮球的拖动跟手、二维惯性抛射贴边、闲置收起、位置记忆都由 '
+          'Bin佬 的 FloatingWindowButton 实现（MT 论坛 bbs.binmt.cc）。'
+          '本仓库只做了三处改造：改用不依赖 Material 组件库的圆球、颜色可配、'
+          '收起时长可配',
+    ),
+
     HeaderSetting(title: '调用记录', subtitle: '仅保存在内存中，重启后清空'),
     InfoSetting(
       title: '最近调用',
@@ -227,6 +285,64 @@ List<SettingsModel> mcpSettings() {
 }
 
 // ==================== 局部逻辑 ====================
+
+/// 开关悬浮球。
+///
+/// 开的时候可能缺「显示在其他应用上层」权限：此时**先引导授权**，用户从系统页
+/// 回来后自动再试一次显示。不做成「点了没反应」——那是这类开关最常见的坑。
+Future<void> _toggleFloatingBall(
+  BuildContext context,
+  McpServerController c,
+  bool value,
+) async {
+  if (!value) {
+    await c.setFloatingBallEnabled(false);
+    return;
+  }
+  if (!await McpFloatingBall.hasPermission()) {
+    final go = await showConfirmDialog(
+      context,
+      title: '需要悬浮窗权限',
+      message:
+          '悬浮球要显示在别的应用上面，需要系统授予「显示在其他应用上层」。\n\n'
+          '点「去授权」后请在系统页面里打开开关，然后返回本页再点一次开关即可。',
+      confirmText: '去授权',
+    );
+    if (go != true) return;
+    await McpFloatingBall.requestPermission();
+    return;
+  }
+  final ok = await c.setFloatingBallEnabled(true);
+  if (!ok) {
+    showToast('悬浮球没能显示，请确认悬浮窗权限');
+    return;
+  }
+  // 用户要求：功能处要有一句署名提示。设置页已有一整张说明卡片，
+  // 这里再给一次轻提示 —— 球出现的那一刻用户才真正“看到”这个功能。
+  showToast('悬浮球已开启，本功能来自 Bin佬');
+}
+
+/// 编辑「闲置多少秒后自动贴边收起」。
+///
+/// `0` 是有意义的取值（= 一直保持展开），所以这里的下界从 0 开始，
+/// 并在弹窗里把这个约定写清楚：用户看到「0」第一反应通常是「无效输入」。
+Future<void> _editIdleSeconds(
+  BuildContext context,
+  McpServerController c,
+) async {
+  await showNumberDialog(
+    context: context,
+    title: '自动贴边时间',
+    description:
+        '悬浮球多久没被操作后自动贴边并淡化。\n\n'
+        '填 0 表示不自动收起（一直保持展开状态）。',
+    initValue: c.floatingBallIdleSeconds,
+    min: 0,
+    max: McpFloatingBall.maxIdleSeconds,
+    helperText: '单位：秒；0 = 不自动收起；默认 ${McpFloatingBall.defaultIdleSeconds}',
+    onSave: c.setFloatingBallIdleSeconds,
+  );
+}
 
 IconData _groupIcon(McpToolGroup group) => switch (group) {
   McpToolGroup.appInfo => Icons.info_outline,

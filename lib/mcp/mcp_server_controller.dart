@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart';
 import 'package:mcp_dart/mcp_dart.dart';
@@ -8,6 +9,7 @@ import 'package:mtbbs/core/app/app_capabilities.dart';
 import 'package:mtbbs/core/utils/database_helper.dart';
 import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/mcp/mcp_authenticator.dart';
+import 'package:mtbbs/mcp/mcp_floating_ball.dart';
 import 'package:mtbbs/mcp/mcp_self_test.dart';
 import 'package:mtbbs/mcp/mcp_status_notice.dart';
 import 'package:mtbbs/mcp/mcp_token.dart';
@@ -66,6 +68,14 @@ class McpServerController extends ChangeNotifier {
   /// 旧版单令牌键（首次运行迁移为"默认令牌"，保住已配置的客户端）
   static const String _kLegacyToken = 'mcpToken';
 
+  // ── 悬浮球（实现来自 Bin佬 的 FloatingWindowButton，见 McpFloatingBall）──
+  /// 悬浮球开关。**独立于服务开关**：服务常在后台跑一整天，若一开服务就
+  /// 强行在屏幕上顶个球，等于替用户决定「我要一直看到它」。
+  static const String _kBallEnabled = 'mcpFloatingBallEnabled';
+  static const String _kBallColor = 'mcpFloatingBallColor';
+  /// 闲置多少秒后自动贴边收起；0 = 不自动收起
+  static const String _kBallIdleSeconds = 'mcpFloatingBallIdleSeconds';
+
   bool _loaded = false;
   bool _enabled = false;
   bool _allowRemote = false;
@@ -77,6 +87,13 @@ class McpServerController extends ChangeNotifier {
   bool _allowAccountSwitch = false;
   int _port = defaultPort;
   final List<McpToken> _tokens = [];
+
+  /// 悬浮球是否开启（与 [_enabled] 无关）
+  bool _ballEnabled = false;
+  /// 悬浮球颜色（0xAARRGGBB）
+  int _ballColor = McpFloatingBall.defaultColor.toARGB32();
+  /// 闲置收起秒数，0 = 不自动收起
+  int _ballIdleSeconds = McpFloatingBall.defaultIdleSeconds;
 
   /// 对外展示/连接的地址（开启局域网访问后为本机局域网 IP；否则回环）
   String _advertisedHost = loopbackHost;
@@ -115,6 +132,16 @@ class McpServerController extends ChangeNotifier {
 
   /// 用户创建的访问令牌（可多个，像 API Key 一样管理）
   List<McpToken> get tokens => List.unmodifiable(_tokens);
+
+  // ── 悬浮球（实现来自 Bin佬 的 FloatingWindowButton，见 McpFloatingBall）──
+  /// 悬浮球开关。默认关闭：没主动开启时不应该有东西盖在别人应用上面。
+  bool get floatingBallEnabled => _ballEnabled;
+
+  /// 悬浮球颜色
+  Color get floatingBallColor => Color(_ballColor);
+
+  /// 闲置收起秒数，0 = 不自动收起
+  int get floatingBallIdleSeconds => _ballIdleSeconds;
 
   /// 是否已有可用令牌：没有令牌时所有连接都会被拒绝
   bool get hasToken => _tokens.isNotEmpty;
@@ -181,6 +208,14 @@ class McpServerController extends ChangeNotifier {
     _allowCrossSite = (await _db.getSettingBool(_kAllowCrossSite)) ?? true;
     _allowAccountSwitch =
         (await _db.getSettingBool(_kAllowAccountSwitch)) ?? false;
+    _ballEnabled = (await _db.getSettingBool(_kBallEnabled)) ?? false;
+    _ballColor =
+        (await _db.getSettingInt(_kBallColor)) ??
+        McpFloatingBall.defaultColor.toARGB32();
+    _ballIdleSeconds =
+        ((await _db.getSettingInt(_kBallIdleSeconds)) ??
+                McpFloatingBall.defaultIdleSeconds)
+            .clamp(0, McpFloatingBall.maxIdleSeconds);
 
     await _loadTokens();
 
@@ -414,6 +449,72 @@ class McpServerController extends ChangeNotifier {
     _allowAccountSwitch = value;
     await _db.setSettingBool(_kAllowAccountSwitch, value);
     notifyListeners();
+  }
+
+  // ==================== 悬浮球 ====================
+  // 实现来自 Bin佬 的 FloatingWindowButton（见 McpFloatingBall）。
+
+  /// 开 / 关悬浮球。
+  ///
+  /// 与 MCP 服务开关**完全独立**：关服务不会收走球，开服务也不会凭空冒出球。
+  /// 开启时若没有悬浮窗权限，这里**不静默失败**：把结果告诉调用方（设置页会
+  /// 弹窗引导去授权）。
+  Future<bool> setFloatingBallEnabled(bool value) async {
+    if (_ballEnabled == value) return true;
+    _ballEnabled = value;
+    await _db.setSettingBool(_kBallEnabled, value);
+    notifyListeners();
+    if (!value) {
+      await McpFloatingBall.hide();
+      return true;
+    }
+    if (!await McpFloatingBall.hasPermission()) {
+      // 记下「用户想要球」这个意图，但不强行跳授权页，
+      // 由设置页在用户点亮开关后立即引导，避免在后台自己弹系统页面。
+      return false;
+    }
+    return McpFloatingBall.show(
+      color: floatingBallColor,
+      idleSeconds: _ballIdleSeconds,
+    );
+  }
+
+  /// 悬浮球颜色（立即生效，无需重启）
+  Future<void> setFloatingBallColor(Color value) async {
+    final argb = value.toARGB32();
+    if (_ballColor == argb) return;
+    _ballColor = argb;
+    await _db.setSettingInt(_kBallColor, argb);
+    notifyListeners();
+    await McpFloatingBall.setColor(value);
+  }
+
+  /// 闲置收起秒数（0 = 不自动收起）
+  Future<void> setFloatingBallIdleSeconds(int value) async {
+    final next = value.clamp(0, McpFloatingBall.maxIdleSeconds);
+    if (_ballIdleSeconds == next) return;
+    _ballIdleSeconds = next;
+    await _db.setSettingInt(_kBallIdleSeconds, next);
+    notifyListeners();
+    await McpFloatingBall.setIdleSeconds(next);
+  }
+
+  /// 启动时恢复悬浮球（由 `main.dart` 在首帧后调用）。
+  ///
+  /// 仅在「用户上次开着 + 权限仍在」时才会真的显示；权限被系统撤销时
+  /// 自动把开关回写为关，避免设置页显示「已开启」但屏幕上什么都没有。
+  Future<void> restoreFloatingBall() async {
+    if (!_ballEnabled) return;
+    if (!await McpFloatingBall.hasPermission()) {
+      _ballEnabled = false;
+      await _db.setSettingBool(_kBallEnabled, false);
+      notifyListeners();
+      return;
+    }
+    await McpFloatingBall.show(
+      color: floatingBallColor,
+      idleSeconds: _ballIdleSeconds,
+    );
   }
 
   // ==================== 访问令牌管理 ====================

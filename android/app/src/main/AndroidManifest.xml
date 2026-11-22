@@ -9,6 +9,11 @@
     <!-- MCP 运行状态前台服务（Android 14+ 需要声明服务类型对应的权限） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- MCP 悬浮球：需要「显示在其他应用上层」。
+         这是普通权限（normal），**声明即可**，运行时还需用户在系统设置里手动授权，
+         由 McpFloatingBallBridge.requestPermission 拉起授权页。
+         不同版本/定制 ROM 上的行为差异见 McpFloatingBall.canShowOverlay 注释。 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <!-- 必须显式关闭预测性返回（android:enableOnBackInvokedCallback="false"）。
          原因：本 App targetSdk = 36（Flutter 3.44 默认值），而 Android 16+ 对
          targetSdk >= 36 的应用**默认开启**预测性返回，并停止调用 onBackPressed /

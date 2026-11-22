@@ -41,6 +41,7 @@ import 'package:mtbbs/core/utils/cache_utils.dart';
 import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/core/utils/max_screen_size.dart';
 import 'package:mtbbs/mcp/mcp.dart';
+import 'package:mtbbs/mcp/mcp_floating_ball.dart';
 import 'package:mtbbs/services/backup/backup_scheduler.dart';
 import 'package:mtbbs/services/error_log/error_log_store.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
@@ -273,6 +274,13 @@ void main() async {
 
   // Android：注册桌面长按快捷方式（「缓存管理」），失败静默
   unawaited(AppShortcuts.install());
+  // Android / 鸿蒙：MCP 悬浮球（实现来自 Bin佬 的 FloatingWindowButton）。
+  // 点球等价于点常驻通知 —— 都只是弹同一个「MCP 快捷开关」。
+  McpFloatingBall.init(onTap: showMcpQuickDialog);
+  // 上次开着就恢复（首帧后，避免与启动动画抢主线程；无权限会自动回写开关）
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => unawaited(McpServerController.instance.restoreFloatingBall()),
+  );
 
   // 设置守卫：UI 启动后后台加载，不阻塞首帧渲染
   _runSettingsGuard(settings);

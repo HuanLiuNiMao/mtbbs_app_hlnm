@@ -92,6 +92,10 @@ class MainActivity : FlutterActivity() {
         // 注入文件提供器开关（设置 → 存储与工具 →「注入文件提供器」，见 docs/29）
         AppDataFilesBridge.register(flutterEngine.dartExecutor.binaryMessenger, this)
 
+        // MCP 悬浮球（设置 → MCP → 悬浮球）。实现来自 Bin佬 的 FloatingWindowButton，
+        // 见 McpFloatingBall 类注释。
+        McpFloatingBallBridge.register(flutterEngine.dartExecutor.binaryMessenger, this)
+
         channel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "mtbbs/max_screen_size",
@@ -203,6 +207,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        // 悬浮球挂在 WindowManager 上，不随 Activity 自动销毁；
+        // 引擎销毁后点击回调也没人接，这里一并摘掉。
+        McpFloatingBallBridge.dispose()
         // 返回键退出（双击退出 → SystemNavigator.pop → activity.finish）后，
         // FlutterActivity 会销毁 FlutterEngine，Dart 侧的 MCP HTTP 服务随之停止，
         // 但 McpForegroundService 是独立组件、不会跟着结束：它会把进程留在前台服务
