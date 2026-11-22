@@ -204,6 +204,10 @@ extension SettingsPersistence on SettingsProvider {
     _minSnapshotWordCount = a.editor.minSnapshotWordCount;
     _autoSaveInterval = a.editor.autoSaveInterval;
     _maxAutoSnapshots = a.editor.maxAutoSnapshots;
+    _editorFabEnabled = a.editor.editorFabEnabled;
+    _editorFabBrowserOnly = a.editor.editorFabBrowserOnly;
+    _editorFabSize = a.editor.editorFabSize;
+    _editorFabSnapSeconds = a.editor.editorFabSnapSeconds;
 
     _avatarCacheDays = a.storage.avatarCacheDays;
     _emojiCacheDays = a.storage.emojiCacheDays;
@@ -296,6 +300,10 @@ extension SettingsPersistence on SettingsProvider {
       minSnapshotWordCount: _minSnapshotWordCount,
       autoSaveInterval: _autoSaveInterval,
       maxAutoSnapshots: _maxAutoSnapshots,
+      editorFabEnabled: _editorFabEnabled,
+      editorFabBrowserOnly: _editorFabBrowserOnly,
+      editorFabSize: _editorFabSize,
+      editorFabSnapSeconds: _editorFabSnapSeconds,
     ),
     storage: StorageSettings(
       avatarCacheDays: _avatarCacheDays,

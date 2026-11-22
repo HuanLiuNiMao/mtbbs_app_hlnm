@@ -251,6 +251,18 @@ class SettingsProvider extends ChangeNotifier {
   /// 工具栏项被隐藏时，其快捷键是否仍然生效（默认开启）
   bool _toolbarShortcutWhenHidden = true;
 
+  /// 是否显示编辑器悬浮窗（默认关）
+  bool _editorFabEnabled = false;
+
+  /// 悬浮窗是否仅在内置浏览器中出现（默认关）
+  bool _editorFabBrowserOnly = false;
+
+  /// 悬浮窗边长（逻辑像素，36–72）
+  double _editorFabSize = 52;
+
+  /// 拖动结束后多少秒自动贴边（0 = 不贴边）
+  int _editorFabSnapSeconds = 3;
+
   /// 启动时自动检查更新（需构建注入更新源，且受 1 小时限流，见 UpdateService）
   bool _autoCheckUpdate = true;
 
@@ -332,6 +344,42 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> setEditorStartupCheck(bool value) async {
     _editorStartupCheck = value;
+    await _persistApp();
+    notifyListeners();
+  }
+
+  /// 开关编辑器悬浮窗。
+  ///
+  /// 关掉时不清除其它三个子设置（大小 / 秒数 / 仅浏览器），
+  /// 下次重新打开时用户不用重新配一遍。
+  Future<void> setEditorFabEnabled(bool value) async {
+    _editorFabEnabled = value;
+    await _persistApp();
+    notifyListeners();
+  }
+
+  /// 悬浮窗是否仅限内置浏览器使用
+  Future<void> setEditorFabBrowserOnly(bool value) async {
+    _editorFabBrowserOnly = value;
+    await _persistApp();
+    notifyListeners();
+  }
+
+  /// 设置悬浮窗边长（逻辑像素）。
+  ///
+  /// 这里也要钳一次：调用方不一定是滑杆，以后可能有别的入口。
+  Future<void> setEditorFabSize(double value) async {
+    _editorFabSize = value.clamp(
+      EditorSettings.minEditorFabSize,
+      EditorSettings.maxEditorFabSize,
+    );
+    await _persistApp();
+    notifyListeners();
+  }
+
+  /// 设置自动贴边秒数（0 = 不贴边，上限 30）
+  Future<void> setEditorFabSnapSeconds(int value) async {
+    _editorFabSnapSeconds = value.clamp(0, 30);
     await _persistApp();
     notifyListeners();
   }

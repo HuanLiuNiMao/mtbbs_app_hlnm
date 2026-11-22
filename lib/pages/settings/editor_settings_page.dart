@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:mtbbs/config/toolbar_config.dart';
 import 'package:mtbbs/models/managed_item.dart';
+import 'package:mtbbs/models/settings/app_settings.dart';
 import 'package:mtbbs/providers/settings_provider.dart';
 import 'package:mtbbs/providers/editor_history_provider.dart';
 import 'package:mtbbs/pages/settings/shortcut_sheet.dart';
@@ -72,6 +73,61 @@ class _EditorSettingsPageState extends State<EditorSettingsPage> {
               ),
               onTap: () => _confirmClearHistory(context, editorHistory),
             ),
+          ]),
+          const SizedBox(height: 8),
+          _section('悬浮窗', [
+            SwitchListTile(
+              secondary: _iconBox(Icons.edit_outlined, cs.onSurfaceVariant),
+              title: const Text('随时打开编辑器'),
+              subtitle: Text(
+                '界面右下角常驻一个主题色按钮，点一下直接写新帖',
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+              value: settings.editorFabEnabled,
+              onChanged: (v) => settings.setEditorFabEnabled(v),
+            ),
+            if (settings.editorFabEnabled) ...[
+              SwitchListTile(
+                secondary: _iconBox(Icons.travel_explore, cs.onSurfaceVariant),
+                title: const Text('仅在内置浏览器中使用'),
+                subtitle: Text(
+                  '关闭时全应用可用；开启后只在内置浏览器页面出现',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+                value: settings.editorFabBrowserOnly,
+                onChanged: (v) => settings.setEditorFabBrowserOnly(v),
+              ),
+              _sliderTile(
+                icon: Icons.photo_size_select_small,
+                title: '悬浮窗大小',
+                subtitle:
+                    '当前 ${settings.editorFabSize.round()} dp'
+                    '（可调 ${EditorSettings.minEditorFabSize.round()}'
+                    '–${EditorSettings.maxEditorFabSize.round()} dp，'
+                    '贴边后自动缩小）',
+                value: settings.editorFabSize,
+                min: EditorSettings.minEditorFabSize,
+                max: EditorSettings.maxEditorFabSize,
+                divisions:
+                    (EditorSettings.maxEditorFabSize -
+                            EditorSettings.minEditorFabSize)
+                        .round(),
+                onChanged: (v) => settings.setEditorFabSize(v),
+              ),
+              _sliderTile(
+                icon: Icons.vertical_align_center,
+                title: '自动贴边',
+                subtitle: settings.editorFabSnapSeconds <= 0
+                    ? '不自动贴边（可随时拖动）'
+                    : '松手后 ${settings.editorFabSnapSeconds} 秒'
+                          '自动贴到屏幕左右边缘并缩小',
+                value: settings.editorFabSnapSeconds.toDouble(),
+                min: 0,
+                max: EditorSettings.maxEditorFabSnapSeconds.toDouble(),
+                divisions: EditorSettings.maxEditorFabSnapSeconds,
+                onChanged: (v) => settings.setEditorFabSnapSeconds(v.round()),
+              ),
+            ],
           ]),
           const SizedBox(height: 8),
           _section('工具栏', [

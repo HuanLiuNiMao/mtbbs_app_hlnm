@@ -45,6 +45,7 @@ import 'package:mtbbs/mcp/mcp_floating_ball.dart';
 import 'package:mtbbs/services/backup/backup_scheduler.dart';
 import 'package:mtbbs/services/error_log/error_log_store.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
+import 'package:mtbbs/widgets/editor/editor_fab_host.dart';
 import 'package:mtbbs/widgets/dialog/mcp_quick_dialog.dart';
 import 'package:mtbbs/widgets/dialog/update_dialog.dart';
 import 'package:mtbbs/auth/widgets/login_sheet.dart';
@@ -463,12 +464,19 @@ class MyApp extends StatelessWidget {
             // 节点 id 与 AX 树不同步），Dart 侧关不掉它，只能不给它内容。
             // 语义树恒为空 → 没有节点更新 → 不再刷屏。
             // 副作用：读屏软件读不到任何东西；将来若要恢复无障碍，删掉这一层即可。
+            //
+            // EditorFabHost 放在最外层（ExcludeSemantics 之内），这样「随时打开
+            // 编辑器」的悬浮窗能盖在任意页面 / 对话框之上。它是应用内 Stack，
+            // 不是系统级悬浮窗，所以不会跨应用（MCP 悬浮球才用原生窗口）。
             builder: (context, child) => ExcludeSemantics(
-              child: _NoticeLifecycleWatcher(
-                settings: settings,
-                auth: auth,
-                child: _WindowBackgroundSync(
-                  child: child ?? const SizedBox.shrink(),
+              child: EditorFabHost(
+                router: router,
+                child: _NoticeLifecycleWatcher(
+                  settings: settings,
+                  auth: auth,
+                  child: _WindowBackgroundSync(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 ),
               ),
             ),

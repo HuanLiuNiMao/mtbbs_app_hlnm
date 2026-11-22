@@ -365,6 +365,18 @@ class ReadingSettings {
 }
 
 class EditorSettings {
+  /// 悬浮窗边长可调区间（逻辑像素）。
+  ///
+  /// 与 `EditorFabConfig.minSize` / `maxSize` 必须一致；这里另存一份是因为
+  /// model 层不应 import widgets 层（否则反向依赖）。
+  static const double minEditorFabSize = 36;
+
+  /// 悬浮窗边长上限
+  static const double maxEditorFabSize = 72;
+
+  /// 自动贴边秒数上限（0 = 不贴边）
+  static const int maxEditorFabSnapSeconds = 30;
+
   final bool threadMiniEditor;
   final bool editorStartupCheck;
   final bool toolbarShortcutWhenHidden;
@@ -393,6 +405,26 @@ class EditorSettings {
   final int autoSaveInterval;
   final int maxAutoSnapshots;
 
+  /// 编辑器悬浮窗总开关（默认关）。
+  ///
+  /// 打开后在界面上常驻一个圆角方形按钮（主题色），点一下进编辑器。它是**应用内**悬浮窗
+  /// （Flutter Overlay，不是系统级 WindowManager 窗口），所以不会像 MCP
+  /// 悬浮球那样跑出本应用；再开 [editorFabBrowserOnly] 还可以只在内置浏览器
+  /// 里出现。
+  final bool editorFabEnabled;
+
+  /// 悬浮窗是否只在「内置浏览器」页面显示（默认关 = 全应用可用）。
+  ///
+  /// 独立于 [editorFabEnabled]：先决定「要不要这个东西」，再决定「在哪出现」。
+  /// 两个开关分开的好处是临时进浏览器抄东西时不用改总开关。
+  final bool editorFabBrowserOnly;
+
+  /// 悬浮窗边长（逻辑像素，见 `EditorFabConfig`）。
+  final double editorFabSize;
+
+  /// 拖动结束后多少秒自动贴边（0 = 不自动贴边）。
+  final int editorFabSnapSeconds;
+
   const EditorSettings({
     required this.threadMiniEditor,
     required this.editorStartupCheck,
@@ -406,6 +438,10 @@ class EditorSettings {
     required this.minSnapshotWordCount,
     required this.autoSaveInterval,
     required this.maxAutoSnapshots,
+    this.editorFabEnabled = false,
+    this.editorFabBrowserOnly = false,
+    this.editorFabSize = 52,
+    this.editorFabSnapSeconds = 3,
   });
 
   factory EditorSettings.defaults() => EditorSettings(
@@ -421,6 +457,10 @@ class EditorSettings {
     minSnapshotWordCount: 10,
     autoSaveInterval: 30,
     maxAutoSnapshots: 10,
+    editorFabEnabled: false,
+    editorFabBrowserOnly: false,
+    editorFabSize: 52,
+    editorFabSnapSeconds: 3,
   );
 
   Map<String, dynamic> toMap() => {
@@ -438,6 +478,10 @@ class EditorSettings {
     'minSnapshotWordCount': minSnapshotWordCount,
     'autoSaveInterval': autoSaveInterval,
     'maxAutoSnapshots': maxAutoSnapshots,
+    'editorFabEnabled': editorFabEnabled,
+    'editorFabBrowserOnly': editorFabBrowserOnly,
+    'editorFabSize': editorFabSize,
+    'editorFabSnapSeconds': editorFabSnapSeconds,
   };
 
   factory EditorSettings.fromMap(
@@ -498,7 +542,35 @@ class EditorSettings {
           (map['autoSaveInterval'] as num?)?.toInt() ?? d.autoSaveInterval,
       maxAutoSnapshots:
           (map['maxAutoSnapshots'] as num?)?.toInt() ?? d.maxAutoSnapshots,
+      editorFabEnabled: boolOrNewFeature(
+        map,
+        'editorFabEnabled',
+        fallback: d.editorFabEnabled,
+        aggressive: aggressive,
+      ),
+      editorFabBrowserOnly: boolOrNewFeature(
+        map,
+        'editorFabBrowserOnly',
+        fallback: d.editorFabBrowserOnly,
+        aggressive: aggressive,
+      ),
+      editorFabSize: editorFabSizeValue(map['editorFabSize'], d.editorFabSize),
+      editorFabSnapSeconds: (map['editorFabSnapSeconds'] is num
+          ? (map['editorFabSnapSeconds'] as num).toInt().clamp(
+              0,
+              maxEditorFabSnapSeconds,
+            )
+          : d.editorFabSnapSeconds),
     );
+  }
+
+  /// 悬浮窗边长：钳到 `EditorFabConfig` 允许的区间，越界/脏数据回默认值。
+  ///
+  /// 拆成静态方法是因为它要做范围校验，写在 fromMap 里会把那一段拉得很长，
+  /// 而且这里没有 `import` 悬浮窗配置的必要（避免 model 层依赖 widgets 层）。
+  static double editorFabSizeValue(Object? raw, double fallback) {
+    if (raw is! num) return fallback;
+    return raw.toDouble().clamp(minEditorFabSize, maxEditorFabSize);
   }
 }
 

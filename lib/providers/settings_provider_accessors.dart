@@ -159,6 +159,18 @@ extension SettingsAccessors on SettingsProvider {
   int get minSnapshotWordCount => _minSnapshotWordCount;
   int get autoSaveInterval => _autoSaveInterval;
   int get maxAutoSnapshots => _maxAutoSnapshots;
+
+  /// 编辑器悬浮窗开关（默认关）
+  bool get editorFabEnabled => _editorFabEnabled;
+
+  /// 悬浮窗是否仅限内置浏览器使用
+  bool get editorFabBrowserOnly => _editorFabBrowserOnly;
+
+  /// 悬浮窗边长（已钳到 36–72）
+  double get editorFabSize => _editorFabSize;
+
+  /// 自动贴边秒数（0 = 不贴边）
+  int get editorFabSnapSeconds => _editorFabSnapSeconds;
   String get historyFormatThread => _historyFormatThread;
   String get historyFormatUser => _historyFormatUser;
   String get historyTitleFormatThread => _historyTitleFormatThread;
