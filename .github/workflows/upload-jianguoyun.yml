@@ -6,13 +6,12 @@ name: Upload to JianguoYun
 # 十几 KB/s，98 MB 要传两个小时，不可用。CI 跑在 Azure 上，到 GitHub
 # 与坚果云都是机房互联，几分钟就能完成。
 #
-# 触发：workflow_dispatch（手动）或 repository_dispatch（脚本，可带凭据）。
+# 触发：仅 workflow_dispatch（手动）。
 #
-# 凭据来源（按优先级）：
-#   1. repository_dispatch 的 client_payload.jgy_user / jgy_pass —— 临时用、
-#      不落仓库。注意这种触发方式的 payload 会出现在 Actions 运行记录里，
-#      属"短时可见"，用完即弃；
-#   2. 仓库 Secrets：JGY_USER / JGY_PASS —— 长期配置，推荐。
+# ⚠️ 不要用 repository_dispatch 传凭据：client_payload 会出现在 Actions
+# 运行记录里（public 仓库任何人都能看），密码等于公开。凭据只走
+# 仓库 Secrets（JGY_USER / JGY_PASS）：Settings → Secrets and variables
+# → Actions → New repository secret。
 on:
   workflow_dispatch:
     inputs:
@@ -31,21 +30,17 @@ on:
         default: true
         type: boolean
 
-  repository_dispatch:
-    types: [upload_jgy]
-
 jobs:
   upload:
     name: Upload APK
     runs-on: ubuntu-latest
-    # 统一两种触发来源的取值：workflow_dispatch 读 inputs.*，
-    # repository_dispatch 读事件里的 client_payload.*
+    # 参数取自 workflow_dispatch 的 inputs；凭据只取自 Secrets。
     env:
-      WANT_TAG: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
-      WANT_DIR: ${{ github.event.inputs.target_dir || github.event.client_payload.target_dir || 'DEFAULT' }}
-      WANT_ONLY_SIGNED: ${{ github.event.inputs.only_signed || github.event.client_payload.only_signed || 'true' }}
-      JGY_USER: ${{ github.event.client_payload.jgy_user || secrets.JGY_USER }}
-      JGY_PASS: ${{ github.event.client_payload.jgy_pass || secrets.JGY_PASS }}
+      WANT_TAG: ${{ github.event.inputs.tag || '' }}
+      WANT_DIR: ${{ github.event.inputs.target_dir || 'DEFAULT' }}
+      WANT_ONLY_SIGNED: ${{ github.event.inputs.only_signed || 'true' }}
+      JGY_USER: ${{ secrets.JGY_USER }}
+      JGY_PASS: ${{ secrets.JGY_PASS }}
     steps:
       - name: 检查参数
         run: |
@@ -58,7 +53,7 @@ jobs:
             exit 1
           fi
           if [ -z "$JGY_USER" ] || [ -z "$JGY_PASS" ]; then
-            echo "::error::缺少坚果云凭据（既没有 client_payload 也没有 Secrets）"
+            echo "::error::缺少坚果云凭据，请在仓库 Settings → Secrets 配置 JGY_USER / JGY_PASS"
             exit 1
           fi
           echo "凭据已就位（用户=${JGY_USER%%@*}@…）"
