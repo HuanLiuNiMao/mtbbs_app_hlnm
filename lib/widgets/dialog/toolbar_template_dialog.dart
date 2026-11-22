@@ -100,6 +100,29 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
     return _isEditing ? '编辑工具栏项' : '新增工具栏项';
   }
 
+  /// 是否显示「常用格式」一键预设。
+  ///
+  /// 只在**新增自定义格式**时给：编辑时若也摆一排，手一滑就把用户已写好的
+  /// 模板连名称一起覆盖掉，而他本来只是想改个颜色值。
+  bool get _showPresets => _isCustomFormat && !_isEditing;
+
+  /// 把预设的三个字段一起填进输入框。
+  ///
+  /// 光标一并推到模板末尾：`TextEditingController.text` 的 setter 会把
+  /// selection 置成 `offset: -1`（相当于"无光标"），此时用户接着打字有概率
+  /// 把内容插到开头，看起来像"点了预设又变成了乱码"。
+  void _applyPreset(BbcodePreset preset) {
+    setState(() {
+      _nameCtl.text = preset.name;
+      _labelCtl.text = preset.label;
+      _templateCtl.text = preset.template;
+      _templateCtl.selection = TextSelection.collapsed(
+        offset: preset.template.length,
+      );
+      _error = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -112,6 +135,28 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_showPresets) ...[
+                Text(
+                  '常用格式（点一下自动填好，再改改就能用）',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final preset in kBbcodePresets)
+                      ActionChip(
+                        label: Text(preset.name),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _applyPreset(preset),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(height: 1, color: cs.outlineVariant),
+                const SizedBox(height: 16),
+              ],
               TextField(
                 controller: _nameCtl,
                 enabled: _isCustom,

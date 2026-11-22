@@ -511,3 +511,92 @@ String toolbarGroupOf(ManagedItem item) {
 /// 是否为用户自定义模板项（非内置 id）
 bool isCustomToolbarItem(ManagedItem item) =>
     !isBuiltinToolbarItemId(item.id) && toolbarTemplateOf(item) != null;
+
+/// 「新增自定义格式」弹窗里的一键预设。
+///
+/// 为什么需要：自己拼 `[size=4][b]${selectText}[/b][/size]` 这种串，方括号、
+/// 斜杠、占位符一处写错就是废模板（发出去显示成字面量），而大多数人只是想
+/// 「标题大一点」「字变红」。这里给出常见写法，点一下就把名称 / 按钮文字 /
+/// 模板一起填进弹窗，用户再改改颜色值就能用。
+///
+/// 约束：**只放论坛解析器真正支持的标签**（见 `core/parser/bbcode2html_convert.dart`
+/// 与 `bbcode2html_tables.dart`）：`b i u s size color backcolor align font
+/// quote code hide free list(*) table/tr/td url img hr`。不要凭印象加
+/// `[center]`、`[spoiler]` 这类 Discuz 之外的写法。
+class BbcodePreset {
+  /// 名称（填进「名称」框，也会显示在格式面板里）
+  final String name;
+
+  /// 按钮文字（填进「按钮文字」框）
+  final String label;
+
+  /// 模板正文，含 [kSelectTextToken] 占位符
+  final String template;
+
+  const BbcodePreset({
+    required this.name,
+    required this.label,
+    required this.template,
+  });
+}
+
+/// 常用 BBCode 预设，供「新增自定义格式」一键上屏。
+///
+/// 顺序按使用频率排：标题 → 强调 → 颜色 → 对齐 → 列表 → 其它。
+const kBbcodePresets = <BbcodePreset>[
+  BbcodePreset(
+    name: '大标题',
+    label: 'H2',
+    template: r'[size=5][b]${selectText}[/b][/size]',
+  ),
+  BbcodePreset(
+    name: '小标题',
+    label: 'H4',
+    template: r'[size=4][b]${selectText}[/b][/size]',
+  ),
+  BbcodePreset(
+    name: '红色强调',
+    label: '红',
+    template: r'[color=#e53935][b]${selectText}[/b][/color]',
+  ),
+  BbcodePreset(
+    name: '灰色注释',
+    label: '灰',
+    template: r'[color=#888888][size=2]${selectText}[/size][/color]',
+  ),
+  BbcodePreset(
+    name: '黄色高亮',
+    label: '高亮',
+    template: r'[backcolor=#FFF59D]${selectText}[/backcolor]',
+  ),
+  BbcodePreset(
+    name: '居中',
+    label: '居中',
+    template: r'[align=center]${selectText}[/align]',
+  ),
+  BbcodePreset(
+    name: '折叠展开',
+    label: '折叠',
+    template: r'[hide]${selectText}[/hide]',
+  ),
+  BbcodePreset(
+    name: '引用框',
+    label: '引用',
+    template: r'[quote]${selectText}[/quote]',
+  ),
+  BbcodePreset(
+    name: '代码块',
+    label: '代码',
+    template: r'[code]${selectText}[/code]',
+  ),
+  BbcodePreset(
+    name: '无序列表',
+    label: '列表',
+    template: r'[list][*]${selectText}[/list]',
+  ),
+  BbcodePreset(
+    name: '链接',
+    label: '链接',
+    template: r'[url=地址]${selectText}[/url]',
+  ),
+];
