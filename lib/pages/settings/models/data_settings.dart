@@ -16,6 +16,14 @@ List<SettingsModel> dataSettings() => [
     icon: Icons.settings_backup_restore_outlined,
     onTap: (ctx, s) => ctx.push('/settings/backup'),
   ),
+  // 错误日志的主入口在关于页「数据管理」，这里再登记一次只是为了让
+  // 设置搜索能搜到（设置搜索页与本清单同源，见 docs/07 #51）。
+  NormalSetting(
+    title: '错误日志',
+    subtitle: '查看崩溃与未捕获异常，可一键复制反馈给开发者',
+    icon: Icons.bug_report_outlined,
+    onTap: (ctx, s) => ctx.push('/settings/about/error-logs'),
+  ),
   NormalSetting(
     title: '缓存管理',
     subtitle: '头像/表情/预览缓存，设置过期时间',

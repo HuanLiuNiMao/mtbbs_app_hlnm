@@ -26,6 +26,7 @@ import 'package:mtbbs/pages/settings/editor_settings_page.dart';
 import 'package:mtbbs/pages/settings/history_format_page.dart';
 import 'package:mtbbs/pages/settings/backup_page.dart';
 import 'package:mtbbs/pages/settings/backup_log_page.dart';
+import 'package:mtbbs/pages/settings/error_log_page.dart';
 import 'package:mtbbs/pages/settings/models/developer_settings.dart';
 import 'package:mtbbs/pages/settings/models/mcp_settings.dart';
 import 'package:mtbbs/pages/settings/settings_group_page.dart';
@@ -188,6 +189,13 @@ GoRouter buildRouter({
           GoRoute(
             path: '/settings/about',
             pageBuilder: (_, __) => const NoTransitionPage(child: AboutPage()),
+          ),
+          // 错误日志（二级页）：入口在关于页「数据管理」。
+          // 形式借鉴 PiliPlus 的日志页，页面顶部已注明出处。
+          GoRoute(
+            path: '/settings/about/error-logs',
+            pageBuilder: (_, __) =>
+                const NoTransitionPage(child: ErrorLogPage()),
           ),
           // 致谢名单（二级页）：上游作者置顶 + 技术栈 + 底层开源依赖
           GoRoute(

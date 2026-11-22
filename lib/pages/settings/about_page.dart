@@ -404,6 +404,15 @@ class _AboutPageState extends State<AboutPage> {
               subtitle: '自选备份内容 · 导入导出 · Web 备份 · 运行日志',
               onTap: () => context.push('/settings/backup'),
             ),
+            const Divider(height: 1, indent: 56),
+            // 错误日志：把崩溃/未捕获异常摊开给用户看，便于反馈问题时直接复制。
+            // 页面形式借鉴 PiliPlus（页面顶部有出处小字，见 error_log_page.dart）。
+            _linkTile(
+              icon: Icons.bug_report_outlined,
+              title: '错误日志',
+              subtitle: '崩溃与未捕获异常记录 · 一键复制给开发者',
+              onTap: () => context.push('/settings/about/error-logs'),
+            ),
           ]),
 
           _sectionTitle('版本信息'),

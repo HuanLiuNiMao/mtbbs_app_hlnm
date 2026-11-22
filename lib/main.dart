@@ -42,6 +42,7 @@ import 'package:mtbbs/core/utils/logger.dart';
 import 'package:mtbbs/core/utils/max_screen_size.dart';
 import 'package:mtbbs/mcp/mcp.dart';
 import 'package:mtbbs/services/backup/backup_scheduler.dart';
+import 'package:mtbbs/services/error_log/error_log_store.dart';
 import 'package:mtbbs/widgets/common/toast_utils.dart';
 import 'package:mtbbs/widgets/dialog/mcp_quick_dialog.dart';
 import 'package:mtbbs/widgets/dialog/update_dialog.dart';
@@ -52,6 +53,13 @@ final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 错误日志采集：必须在任何业务代码之前装钩子，否则启动阶段的异常抓不到。
+  //
+  // 与 PiliPlus 的位置一致（它的 `Catcher2(...)` 也在这里装）。这里不引入
+  // catcher_2：本仓库依赖版本锁得死（见 docs/09），自己装两个钩子即可覆盖
+  // 「Flutter 框架异常」与「异步未捕获异常」两类，足够支撑错误反馈。
+  ErrorLogStore.install();
 
   // 抬高"已解码图片"的内存缓存预算（Flutter 默认 100MB）。
   //
