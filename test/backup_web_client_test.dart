@@ -9,24 +9,44 @@ import 'package:mtbbs/services/backup/backup_web_client.dart';
 /// 在测 dio 而不是测本项目的逻辑。
 void main() {
   group('WebDAV 路径拼装', () {
-    test('地址无尾斜杠时自动补，并追加 mtbbs/文件名', () {
+    test('地址无尾斜杠时自动补，并落到默认目录 环版_MT论坛', () {
       final uri = BackupWebClient.resolveFileUri(
         const WebBackupConfig(uri: 'https://dav.jianguoyun.com/dav'),
       );
-      expect(
-        uri.toString(),
-        'https://dav.jianguoyun.com/dav/mtbbs/mtbbs_backup.json',
-      );
+      // 用 pathSegments 比较：`path` 返回的是百分号编码后的文本，
+      // 直接和中文常量比会失败，而跟编码串比又测不出「中文没被译错」。
+      expect(uri.pathSegments, [
+        'dav',
+        WebBackupConfig.defaultDirectory,
+        WebBackupConfig.defaultFileName,
+      ]);
     });
 
     test('地址已带尾斜杠时不会拼出双斜杠', () {
       final uri = BackupWebClient.resolveFileUri(
         const WebBackupConfig(uri: 'https://dav.jianguoyun.com/dav/'),
       );
-      expect(uri.path, '/dav/mtbbs/mtbbs_backup.json');
+      expect(uri.path.contains('//'), isFalse);
+      expect(uri.pathSegments.first, 'dav');
+      expect(uri.pathSegments.length, 3);
     });
 
-    test('自定义路径插在 mtbbs 之前', () {
+    test('默认目录不再叠一层 mtbbs（避免 环版_MT论坛/mtbbs/ 的双层结构）', () {
+      final uri = BackupWebClient.resolveFileUri(
+        const WebBackupConfig(
+          uri: 'https://example.com/dav/',
+          directory: WebBackupConfig.defaultDirectory,
+        ),
+      );
+      expect(uri.pathSegments, [
+        'dav',
+        WebBackupConfig.defaultDirectory,
+        WebBackupConfig.defaultFileName,
+      ]);
+      expect(uri.pathSegments.contains(WebBackupConfig.appFolder), isFalse);
+    });
+
+    test('自定义路径插在 mtbbs 之前（和默认目录区分开，互不冲突）', () {
       final uri = BackupWebClient.resolveFileUri(
         const WebBackupConfig(
           uri: 'https://example.com/dav/',
@@ -59,7 +79,58 @@ void main() {
       final folder = BackupWebClient.resolveFolderUri(
         const WebBackupConfig(uri: 'https://example.com/dav/'),
       );
-      expect(folder.path, '/dav/mtbbs/');
+      expect(folder.path.endsWith('/'), isTrue);
+      // 末尾斜杠会让 pathSegments.last 是空串，目录名在倒数第二段
+      expect(
+        folder.pathSegments[folder.pathSegments.length - 2],
+        WebBackupConfig.defaultDirectory,
+      );
+    });
+  });
+
+  group('远端子目录的默认值与向后兼容', () {
+    test('构造时默认目录就是 环版_MT论坛', () {
+      expect(
+        const WebBackupConfig().directory,
+        WebBackupConfig.defaultDirectory,
+      );
+    });
+
+    test('老文档没有 directory 键 → 迁到新默认目录（而不是根目录）', () {
+      final cfg = WebBackupConfig.fromMap({
+        'uri': 'https://example.com/dav/',
+        'username': 'u',
+      });
+      expect(cfg.directory, WebBackupConfig.defaultDirectory);
+      expect(cfg.effectiveSegments, [WebBackupConfig.defaultDirectory]);
+    });
+
+    test('键存在但是空串（旧版默认值）也迁到新默认目录', () {
+      // 旧版本的 directory 默认值就是空串，用户从没填过 → 应该跟随新默认
+      final cfg = WebBackupConfig.fromMap({
+        'uri': 'https://example.com/dav/',
+        'directory': '',
+      });
+      expect(cfg.directory, WebBackupConfig.defaultDirectory);
+    });
+
+    test('纯空白的 directory 视为没填', () {
+      final cfg = WebBackupConfig.fromMap({
+        'uri': 'https://example.com/dav/',
+        'directory': '   ',
+      });
+      expect(cfg.directory, WebBackupConfig.defaultDirectory);
+    });
+
+    test('多层自定义目录会保留层级并补 mtbbs 隔开', () {
+      const cfg = WebBackupConfig(directory: 'a/b');
+      expect(cfg.directorySegments, ['a', 'b']);
+      expect(cfg.effectiveSegments, ['a', 'b', 'mtbbs']);
+    });
+
+    test('目录里的多余斜杠与空白会被规整掉', () {
+      const cfg = WebBackupConfig(directory: ' /phone//backup/ ');
+      expect(cfg.directorySegments, ['phone', 'backup']);
     });
   });
 

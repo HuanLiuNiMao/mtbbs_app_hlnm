@@ -234,7 +234,16 @@ class WebBackupConfig {
   /// 「Windows 备份、手机恢复」这种最常见的换机场景找不到文件。
   static const String defaultFileName = 'mtbbs_backup.json';
 
+  /// 用户不填子目录时的默认目录名。
+  ///
+  /// 用中文名是为了在坚果云的网页端 / 客户端里一眼认出这是本应用的备份，
+  /// 而不是混在一堆英文目录里。坚果云允许中文目录名。
+  static const String defaultDirectory = '环版_MT论坛';
+
   /// 应用在 WebDAV 根目录下自建的子目录，避免与用户其它文件混在一起。
+  ///
+  /// 注意它现在**只在用户显式填了更外层目录时**作为二级目录出现；
+  /// 用户不填时直接落在 [defaultDirectory] 下，不再多套一层 `mtbbs/`。
   static const String appFolder = 'mtbbs';
 
   /// WebDAV 根地址，例如 `https://dav.jianguoyun.com/dav/`
@@ -252,7 +261,10 @@ class WebBackupConfig {
   /// 密码的存储方式（明文 / 系统密钥库）
   final SecretStoreMode secretMode;
 
-  /// 云端子目录（相对 [uri]），可留空。实际落点是
+  /// 云端子目录（相对 [uri]），默认 [defaultDirectory]。
+  ///
+  /// 实际落点见 [effectiveSegments]：默认目录是
+  /// `{uri}/环版_MT论坛/mtbbs_backup.json`，自定义目录是
   /// `{uri}/{directory}/mtbbs/mtbbs_backup.json`。
   final String directory;
 
@@ -276,7 +288,7 @@ class WebBackupConfig {
     this.username = '',
     this.password = '',
     this.secretMode = SecretStoreMode.plain,
-    this.directory = '',
+    this.directory = defaultDirectory,
     this.wifiOnly = false,
     this.includeLogs = false,
     this.schedule = const BackupSchedulePolicy(),
@@ -304,9 +316,24 @@ class WebBackupConfig {
       if (s.trim().isNotEmpty) s.trim(),
   ];
 
+  /// 实际使用的目录段。
+  ///
+  /// 三条规则：
+  /// - 空（没填过）→ 直接用 [defaultDirectory]；
+  /// - 正好等于 [defaultDirectory] → 原样使用，**不**再套 [appFolder]，
+  ///   否则会变成 `环版_MT论坛/mtbbs/mtbbs_backup.json`，白白多一层；
+  /// - 其它自定义目录 → 末尾补一层 [appFolder] 隔开，避免和用户放同一目录
+  ///   下的其它文件混在一起。
+  List<String> get effectiveSegments {
+    final outer = directorySegments;
+    if (outer.isEmpty) return const [defaultDirectory];
+    if (outer.length == 1 && outer.first == defaultDirectory) return outer;
+    return [...outer, appFolder];
+  }
+
   /// 云端文件的相对路径（仅用于界面展示与日志，不含 [uri]）
   String get remoteFileLabel =>
-      [...directorySegments, appFolder, defaultFileName].join('/');
+      [...effectiveSegments, defaultFileName].join('/');
 
   /// 定时备份是否开启
   bool get scheduled => schedule.enabled;
@@ -351,7 +378,12 @@ class WebBackupConfig {
       username: map['username']?.toString() ?? d.username,
       password: map['password']?.toString() ?? d.password,
       secretMode: SecretStoreMode.fromName(map['secretMode']?.toString()),
-      directory: map['directory']?.toString() ?? d.directory,
+      // 老文档没有 directory 键、或键是空串（旧版本的默认值就是空串，用户
+      // 从来没填过）→ 一律用新的默认目录。只有真正的非空值才当作用户的自定义，
+      // 否则老用户升级后会一直停在根目录，看不到「默认文件夹为环版_MT论坛」。
+      directory: (map['directory']?.toString().trim().isEmpty ?? true)
+          ? d.directory
+          : map['directory'].toString().trim(),
       wifiOnly: map['wifiOnly'] as bool? ?? d.wifiOnly,
       includeLogs: map['includeLogs'] as bool? ?? d.includeLogs,
       schedule: schedule,

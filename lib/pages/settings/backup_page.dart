@@ -1069,7 +1069,9 @@ class _BackupPageState extends State<BackupPage> {
                     controller: _davDirCtr,
                     decoration: const InputDecoration(
                       labelText: '路径',
-                      hintText: '留空 = 根目录；实际落点会再加一层 mtbbs/',
+                      hintText:
+                          '默认 ${WebBackupConfig.defaultDirectory}；'
+                          '可改成任意子目录，如 backup 或 备份/手机',
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),

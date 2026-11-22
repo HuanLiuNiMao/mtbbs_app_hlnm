@@ -90,8 +90,7 @@ class BackupWebClient {
     final base = Uri.parse(cfg.uri.trim());
     final basePath = base.path.endsWith('/') ? base.path : '${base.path}/';
     final segments = [
-      ...cfg.directorySegments,
-      WebBackupConfig.appFolder,
+      ...cfg.effectiveSegments,
       WebBackupConfig.defaultFileName,
     ];
     // 用 Uri(...) 重建而不是 base.replace(...)：Dart 里 `replace(query: null)`

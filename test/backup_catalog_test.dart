@@ -361,7 +361,10 @@ void main() {
     });
 
     test('directorySegments 吞掉多余斜杠与空白', () {
-      expect(const WebBackupConfig().directorySegments, isEmpty);
+      // 未填写时默认目录就是 环版_MT论坛，不再是空
+      expect(const WebBackupConfig().directorySegments, [
+        WebBackupConfig.defaultDirectory,
+      ]);
       expect(const WebBackupConfig(directory: '/backup/').directorySegments, [
         'backup',
       ]);
@@ -371,11 +374,12 @@ void main() {
       ]);
     });
 
-    test('remoteFileLabel 拼出「路径/mtbbs/文件名」', () {
+    test('remoteFileLabel 默认落 环版_MT论坛/文件名，不叠 mtbbs', () {
       expect(
         const WebBackupConfig().remoteFileLabel,
-        'mtbbs/mtbbs_backup.json',
+        '${WebBackupConfig.defaultDirectory}/mtbbs_backup.json',
       );
+      // 自定义目录才补一层 mtbbs 隔开
       expect(
         const WebBackupConfig(directory: 'backup').remoteFileLabel,
         'backup/mtbbs/mtbbs_backup.json',
