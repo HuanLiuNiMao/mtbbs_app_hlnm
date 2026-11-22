@@ -155,8 +155,13 @@ class McpFloatingBall private constructor(
         val touchSlop = configuration.scaledTouchSlop.toFloat()
         touchSlopSquare = touchSlop * touchSlop
         maximumFlingVelocity = configuration.scaledMaximumFlingVelocity
-        switchEdgeVelocity = configuration.scaledMinimumFlingVelocity *
-            SWITCH_EDGE_MIN_FLING_MULTIPLIER
+        // scaledMinimumFlingVelocity 与乘数都是 Int，乘积也是 Int；
+        // switchEdgeVelocity 声明为 Float，必须显式转一次，否则编译报
+        // "Assignment type mismatch: actual type is 'Int', but 'Float' was expected"。
+        switchEdgeVelocity = (
+            configuration.scaledMinimumFlingVelocity *
+                SWITCH_EDGE_MIN_FLING_MULTIPLIER
+            ).toFloat()
 
         // 球体本身画在 FrameLayout 的背景上，图标用内边距缩放，避免贴边
         elevation = 0f
@@ -434,8 +439,9 @@ class McpFloatingBall private constructor(
         val maxX = max(0, displaySize.x - width)
         val maxY = max(0, displaySize.y - height)
         val motion = EdgeMotion(
-            clamp(params.x.toFloat(), maxX),
-            clamp(params.y.toFloat(), maxY),
+            // clamp 返回 Int（给 params.x/y 用），而 EdgeMotion 的 x/y 是 Float
+            clamp(params.x.toFloat(), maxX).toFloat(),
+            clamp(params.y.toFloat(), maxY).toFloat(),
             vX, vY, maxX, switchEdgeVelocity,
         )
         val lastPlayTime = longArrayOf(0)
@@ -459,7 +465,11 @@ class McpFloatingBall private constructor(
                 params.x = motion.x.roundToInt()
                 params.y = motion.y.roundToInt()
                 positionChanged = true
-                if (isAttachedToWindow) windowManager.updateViewLayout(this, params)
+                // 这个 lambda 在 ValueAnimator.apply { } 里，裸 this 指向
+                // ValueAnimator（updateViewLayout 要 View），必须限定成外层视图。
+                if (isAttachedToWindow) {
+                    windowManager.updateViewLayout(this@McpFloatingBall, params)
+                }
                 if (stopped) {
                     edgeAnimator = null
                     animation.cancel()
