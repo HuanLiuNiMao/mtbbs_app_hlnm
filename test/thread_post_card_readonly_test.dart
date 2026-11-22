@@ -85,10 +85,10 @@ void main() {
     await tester.tap(find.byType(PopupMenuButton<PostCardAction>));
     await tester.pumpAndSettle();
     expect(find.text('在浏览器中打开'), findsOneWidget);
-    // 菜单文案跟随上游（423cd33 起由「查看 BBCode」缩短为「查看」，
-    // 因为同一菜单里已经有「在浏览器中打开」）。这里只断言入口在，
+    // 菜单文案跟随上游：423cd33 先把「查看 BBCode」缩短为「查看」，
+    // 后续 29dd9dd 又正式更名为「借鉴一下」。这里只断言入口在，
     // 不要把文案改回去——改回去会在下次同步上游时再次冲突。
-    expect(find.text('查看'), findsOneWidget);
+    expect(find.text('借鉴一下'), findsOneWidget);
   });
 
   testWidgets('主帖的更多菜单不提供「在浏览器中打开」', (tester) async {

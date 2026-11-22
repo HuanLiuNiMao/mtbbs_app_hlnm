@@ -600,3 +600,24 @@ const kBbcodePresets = <BbcodePreset>[
     template: r'[url=地址]${selectText}[/url]',
   ),
 ];
+
+/// 预设在应用设置里的 id 前缀（与 `format_` / `custom_` 并列，便于识别来源）。
+const String kFormatPresetIdPrefix = 'preset_';
+
+/// 把 [kBbcodePresets] 转成可持久化的 [ManagedItem] 列表（首次运行的默认值）。
+///
+/// id 用**内置序号**（`preset_0`…）而不是名称或时间戳：
+/// - 名称会被用户改，改完就对不上了；
+/// - 时间戳每次启动都会变，同一份默认值会产生无数个 id。
+List<ManagedItem> defaultFormatPresets() => [
+  for (var i = 0; i < kBbcodePresets.length; i++)
+    ManagedItem(
+      id: '$kFormatPresetIdPrefix$i',
+      name: kBbcodePresets[i].name,
+      visible: true,
+      data: {
+        'template': kBbcodePresets[i].template,
+        'label': kBbcodePresets[i].label,
+      },
+    ),
+];

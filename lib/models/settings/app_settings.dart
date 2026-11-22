@@ -311,6 +311,17 @@ class EditorSettings {
   /// 与工具栏项分开存，便于独立增删排序，也不受工具栏重置影响。
   final List<ManagedItem> customFormats;
 
+  /// 用户自己的「常用格式预设」（新增自定义格式时弹窗顶部那排一键按钮）。
+  ///
+  /// 结构与 [customFormats] 完全同构（`data['template']` / `data['label']`），
+  /// 所以同样复用 `ManagedItem`，不用另造一套模型。
+  ///
+  /// **首次为空时回落到内置 [defaultFormatPresets]**（见 `config/toolbar_config.dart`
+  /// 的 `kBbcodePresets`）：老用户升级后仍能看到那 11 个常见写法。
+  /// 一旦用户增/删/改过，就以他自己这份为准 —— 包括**删空**也算已编辑，
+  /// 不会再变回内置列表（靠 `toMap` 里始终写出 `formatPresets` 键来区分）。
+  final List<ManagedItem> formatPresets;
+
   final Map<String, String> shortcuts;
   final Map<String, String> toolbarShortcuts;
   final int minSnapshotWordCount;
@@ -324,6 +335,7 @@ class EditorSettings {
     required this.quickReplies,
     required this.toolbarItems,
     required this.customFormats,
+    required this.formatPresets,
     required this.shortcuts,
     required this.toolbarShortcuts,
     required this.minSnapshotWordCount,
@@ -338,6 +350,7 @@ class EditorSettings {
     quickReplies: defaultQuickReplies(),
     toolbarItems: const [],
     customFormats: const [],
+    formatPresets: defaultFormatPresets(),
     shortcuts: Map.from(ShortcutHelper.defaults),
     toolbarShortcuts: defaultToolbarShortcuts(),
     minSnapshotWordCount: 10,
@@ -352,6 +365,9 @@ class EditorSettings {
     'quickReplies': quickReplies.map((e) => e.toJson()).toList(),
     'toolbarItems': toolbarItems.map((e) => e.toJson()).toList(),
     'customFormats': customFormats.map((e) => e.toJson()).toList(),
+    // 始终写出该键（哪怕空数组）：`fromMap` 靠「键不存在」判断是否回落内置预设，
+    // 用户删空预设后必须留下 `[]`，否则内置列表会复活。
+    'formatPresets': formatPresets.map((e) => e.toJson()).toList(),
     'shortcuts': shortcuts,
     'toolbarShortcuts': toolbarShortcuts,
     'minSnapshotWordCount': minSnapshotWordCount,
@@ -387,6 +403,12 @@ class EditorSettings {
       quickReplies: items('quickReplies', d.quickReplies),
       toolbarItems: items('toolbarItems', d.toolbarItems),
       customFormats: items('customFormats', d.customFormats),
+      // 预设用「键是否存在」区分「从没编辑过」与「用户主动删空」：
+      // 老设置文件里没有该键 → 保留 defaults() 内置的 11 个；
+      // 有该键（哪怕是 `[]`）→ 严格按用户那份来，不再回落。
+      formatPresets: map.containsKey('formatPresets')
+          ? items('formatPresets', const [])
+          : d.formatPresets,
       shortcuts: strMap('shortcuts', d.shortcuts),
       toolbarShortcuts: strMap('toolbarShortcuts', d.toolbarShortcuts),
       minSnapshotWordCount:

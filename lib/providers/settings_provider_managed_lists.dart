@@ -140,6 +140,36 @@ extension SettingsManagedLists on SettingsProvider {
     await _persistCustomFormats();
   }
 
+  // ==================== 编辑器格式预设（弹窗一键按钮） ====================
+
+  Future<void> addFormatPreset(ManagedItem item) async {
+    _formatPresets.add(item);
+    await _persistCustomFormats();
+  }
+
+  Future<void> updateFormatPreset(String id, ManagedItem newValue) async {
+    final i = _formatPresets.indexWhere((e) => e.id == id);
+    if (i < 0) return;
+    _formatPresets[i] = newValue;
+    await _persistCustomFormats();
+  }
+
+  Future<void> deleteFormatPreset(String id) async {
+    _formatPresets.removeWhere((e) => e.id == id);
+    await _persistCustomFormats();
+  }
+
+  Future<void> moveFormatPreset(int from, int to) async {
+    reorderManagedItems(_formatPresets, from, to);
+    await _persistCustomFormats();
+  }
+
+  /// 把预设恢复成内置的 11 个（覆盖用户改动）。
+  Future<void> resetFormatPresets() async {
+    _formatPresets = defaultFormatPresets();
+    await _persistCustomFormats();
+  }
+
   // ==================== 迷你编辑器：上下文可见性 ====================
 
   /// 设置某工具栏项在指定迷你上下文的可见性。

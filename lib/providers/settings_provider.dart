@@ -139,6 +139,9 @@ class SettingsProvider extends ChangeNotifier {
   /// 编辑器「自定义格式」列表（工具栏 customFormat 按钮弹出，可增删排序）
   List<ManagedItem> _customFormats = [];
 
+  /// 「新增自定义格式」弹窗顶部的一键预设（用户可增删改）
+  List<ManagedItem> _formatPresets = defaultFormatPresets();
+
   /// 工具栏快捷键（与 toolbarItems 分离持久化，key = item id）
   Map<String, String> _toolbarShortcuts = defaultToolbarShortcuts();
 
@@ -292,6 +295,10 @@ class SettingsProvider extends ChangeNotifier {
 
   /// 编辑器「自定义格式」（可见项按列表顺序；工具栏 customFormat 面板读取）
   List<ManagedItem> get customFormats => List.unmodifiable(_customFormats);
+
+  /// 「新增自定义格式」弹窗的一键预设（全部，不管 visible —— 预设列表很短，
+  /// 用户在这里就是要一目了然，不做显隐筛选）。
+  List<ManagedItem> get formatPresets => List.unmodifiable(_formatPresets);
 
   String shortcut(String action) =>
       _shortcuts[action] ?? ShortcutHelper.defaults[action] ?? '';

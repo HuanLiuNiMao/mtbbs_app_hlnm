@@ -198,6 +198,7 @@ extension SettingsPersistence on SettingsProvider {
       defaultToolbarItems(),
     );
     _customFormats = a.editor.customFormats;
+    _formatPresets = a.editor.formatPresets;
     _shortcuts = a.editor.shortcuts;
     _toolbarShortcuts = a.editor.toolbarShortcuts;
     _minSnapshotWordCount = a.editor.minSnapshotWordCount;
@@ -288,6 +289,7 @@ extension SettingsPersistence on SettingsProvider {
       quickReplies: _quickReplies,
       toolbarItems: _toolbarItems,
       customFormats: _customFormats,
+      formatPresets: _formatPresets,
       shortcuts: _shortcuts,
       toolbarShortcuts: _toolbarShortcuts,
       minSnapshotWordCount: _minSnapshotWordCount,

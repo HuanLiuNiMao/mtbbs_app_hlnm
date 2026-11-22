@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:mtbbs/config/app_typography.dart';
 import 'package:mtbbs/config/toolbar_config.dart';
 import 'package:mtbbs/models/managed_item.dart';
+import 'package:mtbbs/providers/settings_provider.dart';
+import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
+import 'package:mtbbs/widgets/dialog/managed_list_dialog.dart';
+import 'package:mtbbs/widgets/dialog/color_pick_dialog.dart';
 
 /// 模板类条目的编辑弹窗（工具栏「模板项」与「自定义格式」共用）。
 ///
@@ -111,21 +116,108 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
   /// 光标一并推到模板末尾：`TextEditingController.text` 的 setter 会把
   /// selection 置成 `offset: -1`（相当于"无光标"），此时用户接着打字有概率
   /// 把内容插到开头，看起来像"点了预设又变成了乱码"。
-  void _applyPreset(BbcodePreset preset) {
+  void _applyPreset(ManagedItem preset) {
+    final template = toolbarTemplateOf(preset) ?? '';
     setState(() {
       _nameCtl.text = preset.name;
-      _labelCtl.text = preset.label;
-      _templateCtl.text = preset.template;
+      _labelCtl.text = toolbarLabelOf(preset);
+      _templateCtl.text = template;
       _templateCtl.selection = TextSelection.collapsed(
-        offset: preset.template.length,
+        offset: template.length,
       );
       _error = null;
     });
   }
 
+  /// 选色并插入到模板光标处。
+  ///
+  /// 只插入 `#RRGGBB` 而不替用户补 `[color=]` 标签：同一个色值可能用于
+  /// `[color]` 或 `[backcolor]`，甚至写进 `[table]` 背景，猜错了反而更麻烦。
+  Future<void> _pickColor(BuildContext context) async {
+    final picked = await showColorPickDialog(context);
+    if (picked == null) return;
+    final text = colorToHexRgb(picked);
+    // 有选区就替换掉，无选区就插在光标处（没有光标则追加到末尾）
+    final sel = _templateCtl.selection;
+    final hasSel = sel.isValid;
+    final start = hasSel ? sel.start : _templateCtl.text.length;
+    final end = hasSel ? sel.end : _templateCtl.text.length;
+    setState(() {
+      _templateCtl.value = TextEditingValue(
+        text: _templateCtl.text.replaceRange(start, end, text),
+        selection: TextSelection.collapsed(offset: start + text.length),
+      );
+    });
+  }
+
+  /// 打开「管理常用格式」面板（增 / 删 / 改 / 排序 / 恢复默认）。
+  ///
+  /// 复用 [showManagedListDialog]：它已经处理了拖动排序、长按删除、
+  /// 逐项显隐与「新增」按钮，没必要为预设再写一套。
+  Future<void> _managePresets(BuildContext context) async {
+    final settings = context.read<SettingsProvider>();
+    await showManagedListDialog(
+      context: context,
+      title: '管理常用格式',
+      items: settings.formatPresets,
+      emptyHint: '暂无预设，点右上角 + 添加',
+      allowToggleVisibility: false,
+      onAdd: () async {
+        final created = await showToolbarTemplateDialog(
+          context,
+          isCustomFormat: true,
+        );
+        if (created == null) return null;
+        // 预设自带稳定 id 前缀，避免和 customFormats 的 format_ 混淆
+        final item = ManagedItem(
+          id: '${kFormatPresetIdPrefix}${DateTime.now().millisecondsSinceEpoch}',
+          name: created.name,
+          visible: true,
+          data: created.data,
+        );
+        await settings.addFormatPreset(item);
+        return item;
+      },
+      onEdit: (item) async {
+        final edited = await showToolbarTemplateDialog(
+          context,
+          initial: item,
+          isCustomFormat: true,
+        );
+        if (edited == null) return null;
+        await settings.updateFormatPreset(item.id, edited);
+        return edited;
+      },
+      onDelete: (id) async {
+        await settings.deleteFormatPreset(id);
+        return true;
+      },
+      onReorder: (from, to) => settings.moveFormatPreset(from, to),
+      titleActions: [
+        IconButton(
+          tooltip: '恢复默认预设',
+          icon: const Icon(Icons.restore, size: 20),
+          onPressed: () async {
+            final ok = await showConfirmDialog(
+              context,
+              title: '恢复默认预设',
+              message: '会用内置的 ${kBbcodePresets.length} 个常用格式覆盖当前列表，'
+                  '你自己加过的预设不会被保留。确定吗？',
+              confirmText: '恢复',
+            );
+            if (ok == true) await settings.resetFormatPresets();
+          },
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    // 预设来自设置（用户可增删改），不再写死在代码里。
+    // 用 `watch` 而非 `read`：用户在「管理」里改完返回，这排 chip 要立刻跟着变。
+    final presets = context.watch<SettingsProvider>().formatPresets;
     return AlertDialog(
       title: Text(_title),
       content: ConstrainedBox(
@@ -136,16 +228,31 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (_showPresets) ...[
-                Text(
-                  '常用格式（点一下自动填好，再改改就能用）',
-                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '常用格式（点一下自动填好，再改改就能用）',
+                        style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _managePresets(context),
+                      icon: const Icon(Icons.tune, size: 16),
+                      label: const Text('管理', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final preset in kBbcodePresets)
+                    for (final preset in presets)
                       ActionChip(
                         label: Text(preset.name),
                         visualDensity: VisualDensity.compact,
@@ -194,7 +301,29 @@ class _ToolbarTemplateDialogState extends State<_ToolbarTemplateDialog> {
                   isDense: true,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
+              // 取色入口：手写 `[color=#1A2B3C]` 容易写错位，点选更省事。
+              // 只插入 `#RRGGBB` 本身，不替用户补标签 —— 他要套 color 还是
+              // backcolor 得自己决定，替错了反而更难改。
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _pickColor(context),
+                    icon: const Icon(Icons.palette_outlined, size: 16),
+                    label: const Text('选颜色', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '插到光标处',
+                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
               Text(
                 '示例：[size=4][b]\${selectText}[/b][/size]',
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
