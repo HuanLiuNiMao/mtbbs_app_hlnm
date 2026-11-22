@@ -5,11 +5,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    // Kotlin 插件：必须显式 apply，否则 src/main/kotlin 下的 .kt 文件根本不会参与编译。
-    // 这个仓库的 Kotlin 代码（MainActivity、MCP 悬浮球、AppDataFiles* 等）全靠它。
-    // 版本在 settings.gradle.kts 的 pluginManagement 里统一钉死（当前 2.3.20），
-    // 这里只引用不写版本，避免两处版本漂移。
-    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
