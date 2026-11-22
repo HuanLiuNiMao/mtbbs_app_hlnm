@@ -224,6 +224,9 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
   bool get _isEdit =>
       widget.type == EditorType.editPost || widget.type == EditorType.editReply;
 
+  /// 纯编辑（草稿）模式：不依附板块，不抓页面数据，不提交。
+  bool get _isDraft => widget.type == EditorType.draft;
+
   String get _pageTitle => _session.pageTitle;
 
   /// 编辑器绑定的网页地址（「在浏览器中打开」用）
@@ -388,7 +391,10 @@ class _EditorPageState extends State<EditorPage> with WindowListener {
     try {
       // 用新身份重新取 formhash / 图片 / 引用帖
       await _doFetchPage(preserveContent: false);
-      if (mounted && _isReply && widget.tid.isNotEmpty && widget.pid.isNotEmpty) {
+      if (mounted &&
+          _isReply &&
+          widget.tid.isNotEmpty &&
+          widget.pid.isNotEmpty) {
         await _doFetchQuotedPost();
       }
     } finally {

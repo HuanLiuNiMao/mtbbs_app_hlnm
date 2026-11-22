@@ -134,6 +134,9 @@ class ForumImageController extends ChangeNotifier {
 
   /// 刷新"已上传未使用"的图片（合并去重）
   Future<void> refresh() async {
+    // 草稿模式（没有 fid / tid）：这个接口是按「板块/帖子」查未使用图片的，
+    // 带空 fid 请求没有意义，还可能被服务端当成非法参数。直接跳过。
+    if (_fid.isEmpty && _tid.isEmpty) return;
     _loading = true;
     notifyListeners();
     try {

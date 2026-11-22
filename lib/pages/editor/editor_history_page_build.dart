@@ -156,6 +156,9 @@ extension on _EditorHistoryPageState {
     } else if (key.startsWith('editPost') || key.startsWith('editReply')) {
       icon = Icons.edit;
       color = cs.onSurfaceVariant;
+    } else if (key.startsWith('draft')) {
+      icon = Icons.edit_note;
+      color = cs.onSurfaceVariant;
     } else {
       icon = Icons.description;
       color = cs.onSurfaceVariant;

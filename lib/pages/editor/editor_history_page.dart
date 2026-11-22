@@ -20,6 +20,7 @@ const _typeLabels = {
   'reply': '回复',
   'editPost': '编辑帖子',
   'editReply': '编辑评论',
+  'draft': '纯编辑',
 };
 
 /// 编辑历史记录页 — 统一显示所有会话，按类型分组

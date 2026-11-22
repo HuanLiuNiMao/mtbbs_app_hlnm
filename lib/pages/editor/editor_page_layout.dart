@@ -217,33 +217,37 @@ extension on _EditorPageState {
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
-                    const PopupMenuItem(
-                      value: 'info',
-                      child: ListTile(
-                        leading: Icon(Icons.info_outline, size: 20),
-                        title: Text('页面信息'),
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
+                    // 以下三项都依赖「绑定的论坛页面」：草稿模式没有页面数据，
+                    // 留着只会让人点出一堆空信息/无意义请求，直接不显示。
+                    if (!_isDraft) ...[
+                      const PopupMenuItem(
+                        value: 'info',
+                        child: ListTile(
+                          leading: Icon(Icons.info_outline, size: 20),
+                          title: Text('页面信息'),
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'browser',
-                      child: ListTile(
-                        leading: Icon(Icons.open_in_browser, size: 20),
-                        title: Text('在浏览器中打开'),
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
+                      const PopupMenuItem(
+                        value: 'browser',
+                        child: ListTile(
+                          leading: Icon(Icons.open_in_browser, size: 20),
+                          title: Text('在浏览器中打开'),
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'refresh',
-                      child: ListTile(
-                        leading: Icon(Icons.refresh_rounded, size: 20),
-                        title: Text('刷新页面数据'),
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
+                      const PopupMenuItem(
+                        value: 'refresh',
+                        child: ListTile(
+                          leading: Icon(Icons.refresh_rounded, size: 20),
+                          title: Text('刷新页面数据'),
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
                 _isSubmitting
@@ -256,9 +260,14 @@ extension on _EditorPageState {
                         ),
                       )
                     : TextButton.icon(
+                        // 草稿模式没有板块可发：按钮语义退化为「保存」，
+                        // 走 _saveDraftAndExit（写本地快照后退出）。
                         onPressed: _submit,
-                        icon: const Icon(Icons.send_rounded, size: 18),
-                        label: const Text('发布'),
+                        icon: Icon(
+                          _isDraft ? Icons.save_outlined : Icons.send_rounded,
+                          size: 18,
+                        ),
+                        label: Text(_isDraft ? '保存' : '发布'),
                       ),
               ],
             ),
@@ -388,7 +397,8 @@ extension on _EditorPageState {
               ],
             ),
           ),
-        if (_isPost)
+        // 草稿模式也显示标题框：纯编辑通常需要一个标题来区分多份草稿
+        if (_isPost || _isDraft)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: TextField(
@@ -471,7 +481,9 @@ extension on _EditorPageState {
                               maxLength,
                             }) => null,
                         decoration: InputDecoration(
-                          hintText: _isPost
+                          hintText: _isDraft
+                              ? '写点什么...'
+                              : _isPost
                               ? '想和大家分享点什么...'
                               : _isReply
                               ? '输入回复内容...'

@@ -78,7 +78,8 @@ extension on _EditorPageState {
 
   void _updateHasChanges() {
     final titleChanged =
-        _session.titleCtl.text != _initialTitle && _session.titleCtl.text.isNotEmpty;
+        _session.titleCtl.text != _initialTitle &&
+        _session.titleCtl.text.isNotEmpty;
     final contentChanged = _session.contentCtl.text != _initialContent;
     final aidsChanged = !_setEquals(
       _session.contentCtl.pendingAids,
@@ -99,7 +100,8 @@ extension on _EditorPageState {
   }
 
   bool get _hasChangesSinceLastSave {
-    if (_session.titleCtl.text != _lastSavedTitle && _session.titleCtl.text.isNotEmpty)
+    if (_session.titleCtl.text != _lastSavedTitle &&
+        _session.titleCtl.text.isNotEmpty)
       return true;
     if (_session.contentCtl.text != _lastSavedContent) return true;
     if (!_setEquals(_session.contentCtl.pendingAids, _lastSavedPendingAids))
@@ -125,6 +127,9 @@ extension on _EditorPageState {
     AppLogger.d('EDITOR', 'auto-snapshot saved: ${snapshot.wordCount} chars');
   }
 
+  EditorSnapshot _buildSnapshot({required bool isManual}) =>
+      _session.buildSnapshot(isManual: isManual);
+
   Future<void> _saveManualSnapshot() async {
     final snapshot = _buildSnapshot(isManual: true);
     await context.read<EditorHistoryProvider>().addManualSnapshot(snapshot);
@@ -133,6 +138,23 @@ extension on _EditorPageState {
     if (mounted) showToast('已手动保存');
   }
 
-  EditorSnapshot _buildSnapshot({required bool isManual}) =>
-      _session.buildSnapshot(isManual: isManual);
+  /// 纯编辑模式的「保存」：写一条手动快照后直接退出。
+  ///
+  /// 草稿没有服务端目标，所以按钮语义从「发布」变成「保存」：
+  /// 保存到本地编辑历史（可再次从「编辑历史」按 session 恢复），然后关页。
+  /// 内容为空时只退出、不写快照，避免历史里堆一堆空记录。
+  Future<void> _saveDraftAndExit() async {
+    final content = _session.contentCtl.text.trim();
+    if (content.isEmpty) {
+      _isLeavingNormally = true;
+      _autoSaveTimer?.cancel();
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    await _saveManualSnapshot();
+    if (!mounted) return;
+    _isLeavingNormally = true;
+    _autoSaveTimer?.cancel();
+    Navigator.of(context).pop({'success': true});
+  }
 }

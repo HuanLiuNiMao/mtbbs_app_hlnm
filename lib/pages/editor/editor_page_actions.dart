@@ -22,6 +22,12 @@ extension on _EditorPageState {
   // ==================== 提交 ====================
 
   Future<void> _submit() async {
+    // 纯编辑模式：没有板块可发，动作退化为「保存草稿」。
+    // 这也是本次需求的核心 —— 用户要的是「一个编辑功能」，不是「发到某个板块」。
+    if (_session.isDraft) {
+      await _saveDraftAndExit();
+      return;
+    }
     final title = _session.titleCtl.text.trim();
     final content = _session.contentCtl.text.trim();
     if (content.isEmpty) {
@@ -48,13 +54,11 @@ extension on _EditorPageState {
       return;
     }
 
-    if (_session.seccodeRequired &&
-        _session.seccodeCtl.text.trim().isEmpty) {
+    if (_session.seccodeRequired && _session.seccodeCtl.text.trim().isEmpty) {
       if (mounted) showToast('请输入验证码');
       return;
     }
-    if (_session.secqaaRequired &&
-        _session.secqaaCtl.text.trim().isEmpty) {
+    if (_session.secqaaRequired && _session.secqaaCtl.text.trim().isEmpty) {
       if (mounted) showToast('请输入验证问答答案');
       return;
     }
@@ -170,8 +174,7 @@ extension on _EditorPageState {
           }),
         );
         // 验证码 / 验证问答错误后旧答案已失效，清空输入并换一张
-        if (result.message.contains('验证码') ||
-            result.message.contains('验证问答')) {
+        if (result.message.contains('验证码') || result.message.contains('验证问答')) {
           _session.resetCaptcha();
         }
         showToast('操作失败: ${result.message}');
@@ -266,6 +269,8 @@ String _typeLabel(String type) {
       return '编辑帖子';
     case 'editReply':
       return '编辑评论';
+    case 'draft':
+      return '纯编辑';
     default:
       return type;
   }

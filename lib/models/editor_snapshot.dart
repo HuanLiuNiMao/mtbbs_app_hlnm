@@ -6,7 +6,11 @@ import 'package:mtbbs/core/utils/string_utils.dart';
 // ==================== 编辑器类型 ====================
 
 /// 编辑器操作类型
-enum EditorType { post, comment, reply, editPost, editReply }
+///
+/// [draft] 是**不依附任何板块 / 帖子**的纯编辑模式：不抓取服务端页面数据、
+/// 不提交、不参与论坛发帖流程，只提供正文编辑 + 预览 + 本地快照。
+/// 悬浮窗、桌面快捷方式等"就想写点东西"的入口用它。
+enum EditorType { post, comment, reply, editPost, editReply, draft }
 
 // ==================== PageFormDataSnapshot ====================
 

@@ -110,8 +110,16 @@ class EditorSession extends ChangeNotifier {
         return '编辑评论';
       case EditorType.reply:
         return '回复评论';
+      case EditorType.draft:
+        return '编辑';
     }
   }
+
+  /// 是否是「不依附板块」的纯编辑（草稿）形态。
+  ///
+  /// 这类会话没有 fid / tid / pid，也不抓取服务端页面数据，
+  /// 因此所有与服务端交互的入口（提交、上传、引用、验证码）都要按它屏蔽。
+  bool get isDraft => editorType == EditorType.draft;
 
   /// 提交辅助器按当前目标按需构建（[switchTarget] 后自动取到新值）
   EditorSubmitHelper get submitHelper => EditorSubmitHelper(

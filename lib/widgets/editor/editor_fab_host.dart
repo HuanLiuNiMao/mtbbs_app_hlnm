@@ -12,7 +12,14 @@ import 'package:mtbbs/widgets/editor/editor_fab.dart';
 const String kBrowserRoutePrefix = '/browser';
 
 /// 编辑器路由（点悬浮窗要跳到这里）。
-const String kEditorRoute = '/editor';
+///
+/// 带 `type=draft`：用户明确要求「不要依附于现有的板块，我只是想要一个编辑
+/// 功能」。不带参数时路由默认是 `post`，而 `fid` 为空会让提交打到
+/// `action=post&fid=` → 服务端回「指定的板块不存在」。
+const String kEditorDraftRoute = '/editor?type=draft';
+
+/// 编辑器路由前缀（判断「已经在编辑器里」用，含 `/editor/history`）。
+const String kEditorRoutePrefix = '/editor';
 
 /// 编辑器悬浮窗的宿主：挂在 `MaterialApp.builder` 里，罩住整个 App。
 ///
@@ -55,7 +62,7 @@ class EditorFabHost extends StatelessWidget {
         }
 
         // 已经在编辑器里就不用再显示了 —— 点它没意义，还挡正文
-        if (location == kEditorRoute) return child;
+        if (location.startsWith(kEditorRoutePrefix)) return child;
 
         return Stack(
           children: [
@@ -73,7 +80,8 @@ class EditorFabHost extends StatelessWidget {
                 ),
                 size: settings.editorFabSize,
                 snapSeconds: settings.editorFabSnapSeconds,
-                onTap: () => router.push(kEditorRoute),
+                // 草稿模式：不绑定任何板块，点进去就是一个空白编辑区
+                onTap: () => router.push(kEditorDraftRoute),
               ),
             ),
           ],

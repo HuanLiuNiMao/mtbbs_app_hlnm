@@ -123,6 +123,13 @@ class EditorHistoryProvider extends ChangeNotifier {
         return 'editPost_${tid}_$pid';
       case EditorType.editReply:
         return 'editReply_${tid}_$pid';
+      case EditorType.draft:
+        // 草稿没有 fid/tid/pid，用时间戳做 key：
+        // 每次从悬浮窗进来都是一个**独立的空白草稿**，
+        // 上一次的内容仍在「编辑历史」里按 session key 各自成组，不会互相覆盖。
+        final r = Random().nextInt(999999);
+        final ts = DateTime.now().millisecondsSinceEpoch;
+        return 'draft_${ts}_$r';
     }
   }
 
@@ -178,8 +185,8 @@ class EditorHistoryProvider extends ChangeNotifier {
     final latest = manuals.isNotEmpty
         ? manuals.last
         : autos.isNotEmpty
-            ? autos.last
-            : null;
+        ? autos.last
+        : null;
     if (latest == null) return '(空)';
 
     final parts = <String>[];

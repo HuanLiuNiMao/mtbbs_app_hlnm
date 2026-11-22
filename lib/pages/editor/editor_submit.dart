@@ -45,10 +45,21 @@ class EditorSubmitHelper {
     EditorType.reply => 'reply',
     EditorType.editPost => 'editPost',
     EditorType.editReply => 'editReply',
+    // 草稿模式不抓服务端页面，这个值不会被用到
+    EditorType.draft => 'post',
   };
+
+  /// 草稿（不依附板块）形态：不抓页面、不提交。
+  bool get _isDraft => editorType == EditorType.draft;
 
   /// 拉取绑定的 Discuz 页面数据
   Future<PageFormData> fetchPage({bool preserveContent = false}) async {
+    // 草稿模式没有服务端目标：直接返回一个"成功但空"的页面数据，
+    // 让编辑器停在可编辑状态，而不是去请求 `action=post&fid=` 撞出
+    //「指定的板块不存在」。
+    if (_isDraft) {
+      return const PageFormData(success: true);
+    }
     try {
       final result = await post_api.fetchEditorPage(
         ApiService().dio,
@@ -197,6 +208,16 @@ class EditorSubmitHelper {
   }) async {
     final attachNew = parseAttachNew(content, extraAids: appendAids);
 
+    // 草稿模式没有服务端目标：不发请求，直接返回失败让调用方给出提示。
+    // 正常流程里调用方（EditorPage）会在进这条分支前就拦住，这里只是兜底，
+    // 防止将来有人直接调用 submit 把空 fid 发给服务端。
+    if (_isDraft) {
+      return const SubmitResult(
+        success: false,
+        message: '当前是纯编辑模式，没有绑定板块，无法发布',
+      );
+    }
+
     AppLogger.i(
       'EDITOR',
       jsonEncode({
@@ -256,6 +277,12 @@ class EditorSubmitHelper {
           seccodeVerify: seccodeVerify,
           secqaaHash: pageData.secqaaHash,
           secanswer: secanswer,
+        );
+      case EditorType.draft:
+        // 已在方法开头拦掉（草稿不发请求），这里只是让 switch 收敛。
+        return const SubmitResult(
+          success: false,
+          message: '当前是纯编辑模式，没有绑定板块，无法发布',
         );
     }
   }

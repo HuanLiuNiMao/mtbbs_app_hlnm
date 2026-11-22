@@ -79,6 +79,10 @@ extension on _EditorPageState {
           ? _session.pageData.tid
           : widget.tid;
 
+      // 草稿模式没有 fid / tid：这个接口按板块/帖子查未使用附件，
+      // 空参数请求没有意义，直接跳过（列表保持为空）。
+      if (fid.isEmpty && tid.isEmpty) return;
+
       AppLogger.i(
         'EDITOR',
         jsonEncode({'action': 'refreshAttachmentList', 'fid': fid, 'tid': tid}),

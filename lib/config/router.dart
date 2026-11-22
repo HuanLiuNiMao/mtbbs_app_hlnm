@@ -277,6 +277,8 @@ GoRouter buildRouter({
                 'reply' => EditorType.reply,
                 'editPost' => EditorType.editPost,
                 'editReply' => EditorType.editReply,
+                // 纯编辑：不依附任何板块/帖子，只提供编辑 + 本地快照
+                'draft' => EditorType.draft,
                 _ => EditorType.post,
               };
               return NoTransitionPage(
