@@ -32,7 +32,8 @@ import 'package:mtbbs/widgets/dialog/confirm_dialog.dart';
 /// 2. **备份 / 恢复**：立即导出（剪切板或文件）、从剪切板 / 文件导入，
 ///    导入前预览模块清单并二次确认敏感项；
 /// 3. **本地备份**：定时把备份包写进应用私有目录，按份数轮转；
-/// 4. **Web 备份**：用户自备服务器的地址 / 鉴权 / 间隔 / 仅 Wi-Fi / 附带日志。
+/// 4. **Web 备份**：标准 WebDAV（地址 / 用户 / 密码 / 路径 + 定时 / 仅 Wi-Fi / 带日志），
+///    形态与逻辑借鉴 bggRGjQaUbCoE/PiliPlus 的 WebDAV 设置页。
 ///
 /// 设计约束（见 docs/28）：
 /// - 勾选状态只落独立 KV 键 `backupSettings`（`BackupSettingsStore`），
@@ -74,7 +75,11 @@ class _BackupPageState extends State<BackupPage> {
           _buildCookiesCard(settings),
           _sectionHeader('本地备份', '存在应用私有目录，卸载即清；不需要网络'),
           _buildLocalCard(settings, backup),
-          _sectionHeader('Web 备份', '服务器由你自备，本应用不提供托管空间'),
+          _sectionHeader(
+            'Web 备份',
+            '借鉴于 bggRGjQaUbCoE/PiliPlus 的 WebDAV 设置；服务器由你自备'
+                '（坚果云 / Nextcloud / 群晖均可）',
+          ),
           _buildWebCard(settings, backup),
           _sectionHeader('运行日志', '每次备份 / 恢复都会留一条记录，环形保留'),
           _buildLogCard(settings, backup),
@@ -773,9 +778,8 @@ class _BackupPageState extends State<BackupPage> {
   Future<void> _exportCookiesOnly() async {
     setState(() => _busy = true);
     try {
-      final doc =
-          (jsonDecode(await DataPortability.exportCookiesJson()) as Map)
-              .cast<String, dynamic>();
+      final doc = (jsonDecode(await DataPortability.exportCookiesJson()) as Map)
+          .cast<String, dynamic>();
       // 剥掉 accounts：账号列表属另一项，这里只给凭据
       final sites = doc['sites'];
       if (sites is List) {
@@ -806,11 +810,7 @@ class _BackupPageState extends State<BackupPage> {
       context: context,
       title: 'Cookie 来源',
       options: const [
-        SelectOption(
-          value: 'file',
-          icon: Icons.folder_open,
-          label: '选择文件',
-        ),
+        SelectOption(value: 'file', icon: Icons.folder_open, label: '选择文件'),
         SelectOption(
           value: 'clipboard',
           icon: Icons.content_paste,
@@ -867,7 +867,8 @@ class _BackupPageState extends State<BackupPage> {
     final ok = await showConfirmDialog(
       context,
       title: '覆盖本机 Cookie？',
-      message: '导入会用文件里的凭据替换本机各站点 Cookie，'
+      message:
+          '导入会用文件里的凭据替换本机各站点 Cookie，'
           '账号列表不受影响。若当前处于登录状态，可能需要重新登录。',
       confirmText: '覆盖',
       danger: true,
@@ -882,9 +883,7 @@ class _BackupPageState extends State<BackupPage> {
         settings.applyRuntimeConfig();
       }
       if (!mounted) return;
-      showToast(
-        '已导入 ${result.jars} 份 Cookie，涉及 ${result.hosts.length} 个站点',
-      );
+      showToast('已导入 ${result.jars} 份 Cookie，涉及 ${result.hosts.length} 个站点');
     } catch (e) {
       if (mounted) showToast('导入失败：$e');
     } finally {
@@ -924,8 +923,9 @@ class _BackupPageState extends State<BackupPage> {
 
   static String _prettyName(String name) {
     // mtbbs_auto_20251108_033512.json → 2025-11-08 03:35:12
-    final m = RegExp(r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})')
-        .firstMatch(name);
+    final m = RegExp(
+      r'(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})',
+    ).firstMatch(name);
     if (m == null) return name;
     return '${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}';
   }
@@ -936,80 +936,186 @@ class _BackupPageState extends State<BackupPage> {
     return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
   }
 
-  // ==================== Web 备份 ====================
+  // ==================== Web 备份（WebDAV） ====================
+
+  /// 四个输入框的控制器。放在 State 里而不是每次 build 新建：
+  /// 每次 build 新建会让光标位置在每次 setState 后跳回开头。
+  late final TextEditingController _davUriCtr;
+  late final TextEditingController _davUserCtr;
+  late final TextEditingController _davPassCtr;
+  late final TextEditingController _davDirCtr;
+  bool _davObscure = true;
+
+  /// 控制器与「上一次同步进来的配置」。
+  ///
+  /// 不能在 `initState` 里读 Provider（那时还拿不到），所以懒初始化。
+  /// 记录 `_davSynced` 是为了区分「外部改了配置」和「用户正在输入」：
+  /// 前者要刷新输入框（如导入备份包后），后者绝不能覆盖（会让光标跳到末尾）。
+  bool _davCtrReady = false;
+  WebBackupConfig? _davSynced;
+
+  void _ensureDavControllers(WebBackupConfig web) {
+    if (!_davCtrReady) {
+      _davUriCtr = TextEditingController(text: web.uri);
+      _davUserCtr = TextEditingController(text: web.username);
+      // 加密模式下密码在密钥库里，输入框留空（提示语已说明「留空 = 不改」）
+      _davPassCtr = TextEditingController(
+        text: web.secretMode == SecretStoreMode.secure ? '' : web.password,
+      );
+      _davDirCtr = TextEditingController(text: web.directory);
+      _davSynced = web;
+      _davCtrReady = true;
+      return;
+    }
+    // 同步外部变更（导入备份 / 走别的入口改了配置），但不打断用户输入
+    final prev = _davSynced;
+    if (prev == null ||
+        (prev.uri == web.uri &&
+            prev.username == web.username &&
+            prev.password == web.password &&
+            prev.directory == web.directory &&
+            prev.secretMode == web.secretMode)) {
+      return;
+    }
+    void sync(TextEditingController c, String next) {
+      // 只在该字段确实变了时改：无条件赋值会把光标位置重置到开头
+      if (c.text != next) c.text = next;
+    }
+
+    sync(_davUriCtr, web.uri);
+    sync(_davUserCtr, web.username);
+    sync(
+      _davPassCtr,
+      web.secretMode == SecretStoreMode.secure ? '' : web.password,
+    );
+    sync(_davDirCtr, web.directory);
+    _davSynced = web;
+  }
+
+  @override
+  void dispose() {
+    if (_davCtrReady) {
+      _davUriCtr.dispose();
+      _davUserCtr.dispose();
+      _davPassCtr.dispose();
+      _davDirCtr.dispose();
+    }
+    super.dispose();
+  }
 
   Widget _buildWebCard(SettingsProvider settings, BackupSettings backup) {
     final web = backup.web;
+    _ensureDavControllers(web);
+    final cs = Theme.of(context).colorScheme;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.cloud_upload_outlined),
             title: const Text('启用 Web 备份'),
-            subtitle: const Text('把备份包上传到你自己搭建的接口'),
+            subtitle: const Text('把备份包传到你的 WebDAV 网盘（坚果云 / Nextcloud / 群晖）'),
             value: backup.webEnabled,
             onChanged: (v) => settings.setBackupWebEnabled(v),
           ),
           if (backup.webEnabled) ...[
             const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.link),
-              title: const Text('服务器地址'),
-              subtitle: Text(
-                web.url.isEmpty ? '未填写' : web.url,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _davUriCtr,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: '地址',
+                      hintText: 'https://dav.jianguoyun.com/dav/',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _davUserCtr,
+                    decoration: const InputDecoration(
+                      labelText: '用户',
+                      hintText: '坚果云填账号邮箱',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _davPassCtr,
+                    obscureText: _davObscure,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: InputDecoration(
+                      labelText: '密码',
+                      hintText: '坚果云填「应用授权码」，不是登录密码',
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                      suffixIcon: IconButton(
+                        onPressed: () =>
+                            setState(() => _davObscure = !_davObscure),
+                        icon: _davObscure
+                            ? const Icon(Icons.visibility)
+                            : const Icon(Icons.visibility_off),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _davDirCtr,
+                    decoration: const InputDecoration(
+                      labelText: '路径',
+                      hintText: '留空 = 根目录；实际落点会再加一层 mtbbs/',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '云端文件：${web.remoteFileLabel}',
+                      style: TextStyle(fontSize: 11, color: cs.outline),
+                    ),
+                  ),
+                ],
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                final v = await _askText(
-                  title: '服务器地址',
-                  description:
-                      '例如 https://nas.local/backup.php（POST/PUT 接收 JSON）',
-                  initValue: web.url,
-                  keyboardType: TextInputType.url,
-                );
-                if (v != null) {
-                  await settings.setWebBackupConfig(web.copyWith(url: v));
-                }
-              },
             ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.swap_vert),
-              title: const Text('请求方法'),
-              subtitle: Text(web.method),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                final m = await showSelectDialog<String>(
-                  context: context,
-                  title: '请求方法',
-                  options: const [
-                    SelectOption(value: 'POST', label: 'POST'),
-                    SelectOption(value: 'PUT', label: 'PUT'),
-                  ],
-                  selected: web.method,
-                );
-                 if (m != null) {
-                   await settings.setWebBackupConfig(web.copyWith(method: m));
-                 }
-               },
-             ),
-             const Divider(height: 1),
-             ListTile(
-               leading: const Icon(Icons.vpn_key_outlined),
-              title: const Text('鉴权头'),
-              subtitle: Text(
-                web.secretMode == SecretStoreMode.secure
-                    ? '${web.headerName}: '
-                          '${web.headerValue.isNotEmpty ? _maskSecret(web.headerValue) : '已存密钥库'}'
-                    : '${web.headerName}: ${_maskSecret(web.headerValue)}',
+            const SizedBox(height: 14),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonal(
+                      onPressed: _busy ? null : () => _saveAndTestDav(settings),
+                      child: const Text('连接测试'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.tonal(
+                      onPressed: _busy
+                          ? null
+                          : () => _runWebUpload(settings, backup),
+                      child: const Text('立即备份'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.tonal(
+                      onPressed: _busy ? null : () => _runWebRestore(settings),
+                      child: const Text('从云端恢复'),
+                    ),
+                  ),
+                ],
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _editAuthHeader(settings, web),
             ),
-            const Divider(height: 1),
+            const Divider(height: 28),
             ListTile(
               leading: const Icon(Icons.schedule),
               title: const Text('定时上传'),
@@ -1039,19 +1145,41 @@ class _BackupPageState extends State<BackupPage> {
                   settings.setWebBackupConfig(web.copyWith(includeLogs: v)),
             ),
             const Divider(height: 1),
+            SwitchListTile(
+              secondary: Icon(
+                web.secretMode == SecretStoreMode.secure
+                    ? Icons.lock_outline
+                    : Icons.lock_open_outlined,
+              ),
+              title: const Text('把密码存进系统密钥库'),
+              subtitle: Text(
+                web.secretMode == SecretStoreMode.secure
+                    ? '已启用：密码存在 Keystore / Keychain，不随备份包迁移'
+                    : '当前明文保存在设置文档中；公共设备建议开启',
+              ),
+              value: web.secretMode == SecretStoreMode.secure,
+              onChanged: SecretStore.available
+                  ? (v) => _toggleDavSecret(settings, v)
+                  : null,
+            ),
+            if (!SecretStore.available)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Text(
+                  '当前平台没有可用的系统密钥库，只能明文保存',
+                  style: TextStyle(fontSize: 11, color: cs.outline),
+                ),
+              ),
+            const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.upload_file),
-              title: const Text('立即上传'),
+              leading: const Icon(Icons.history),
+              title: const Text('上次结果'),
               subtitle: Text(
                 web.lastRunAt.isEmpty
                     ? '从未上传'
-                    : '上次：${_fmtTime(DateTime.tryParse(web.lastRunAt))}'
+                    : '${_fmtTime(DateTime.tryParse(web.lastRunAt))}'
                           '${web.lastResult.isEmpty ? '' : ' · ${web.lastResult}'}',
               ),
-              enabled: !_busy && web.usable,
-              onTap: _busy || !web.usable
-                  ? null
-                  : () => _runWebUpload(settings, backup),
             ),
           ],
         ],
@@ -1059,75 +1187,79 @@ class _BackupPageState extends State<BackupPage> {
     );
   }
 
-  /// 编辑鉴权头：先选存储方式（明文 / 系统密钥库），再填名字与值。
+  /// 保存四个输入框 + 连接测试（对应 PiliPlus 的保存 FAB 里调 `init()`）。
   ///
-  /// 为什么要先选存储方式：它决定了「值写到哪里」，而两处的写法和
-  /// 换机迁移能力完全不同。等用户填完再问，容易让他以为填进明文里更安全。
-  Future<void> _editAuthHeader(
-    SettingsProvider settings,
-    WebBackupConfig web,
-  ) async {
-    final secureAvailable = SecretStore.available;
-    final mode = await showSelectDialog<SecretStoreMode>(
-      context: context,
-      title: '鉴权头值存储方式',
-      selected: web.secretMode,
-      options: [
-        for (final m in SecretStoreMode.values)
-          if (m != SecretStoreMode.secure || secureAvailable)
-            SelectOption(value: m, label: m.label, description: m.description),
-      ],
+  /// 先落库再测试：测试用的是「刚填进去的值」，而不是旧配置。
+  /// 地址为空时只保存不测试（PiliPlus 也是这个行为）——
+  /// 用户可能只是想先清空。
+  Future<void> _saveAndTestDav(SettingsProvider settings) async {
+    final uri = _davUriCtr.text.trim();
+    final user = _davUserCtr.text.trim();
+    final pass = _davPassCtr.text;
+    final dir = _davDirCtr.text.trim();
+    final web = settings.backupSettings.web;
+
+    // 加密模式下输入框留空 = 不改（值已在密钥库），别把空串写回去
+    final keepSecret = web.secretMode == SecretStoreMode.secure && pass.isEmpty;
+    final next = web.copyWith(
+      uri: uri,
+      username: user,
+      password: keepSecret ? null : pass,
+      directory: dir,
     );
-    if (mode == null || !mounted) return;
-    if (mode != web.secretMode) {
-      final ok = await settings.setWebBackupSecretMode(mode);
+    if (web.secretMode == SecretStoreMode.secure && pass.isNotEmpty) {
+      final ok = await SecretStore.write(BackupWebClient.secretKey, pass);
       if (!ok) {
-        if (mounted) showToast('该平台不支持系统密钥库，已保持原方式');
+        if (mounted) showToast('写入系统密钥库失败');
         return;
       }
     }
-    if (!mounted) return;
-    // 重新取一次：切模式会搬值，旧对象里的 headerValue 已经不准了
-    final current = settings.backupSettings.web;
-
-    final name = await _askText(
-      title: '鉴权头名',
-      description: '常见值：Authorization / X-Api-Key',
-      initValue: current.headerName,
-    );
-    if (name == null || !mounted) return;
-
-    final value = await _askText(
-      title: '鉴权头值',
-      description: current.secretMode == SecretStoreMode.secure
-          ? '例如 Bearer <token>。将写入系统密钥库，不随备份包迁移。'
-          : '例如 Bearer <token>。明文保存在设置文档中，请勿在公共设备使用。',
-      initValue: current.secretMode == SecretStoreMode.secure
-          ? '' // 密钥库里的值不回显到输入框
-          : current.headerValue,
-      obscure: true,
-    );
-    if (value == null) return;
-
-    if (current.secretMode == SecretStoreMode.secure) {
-      // 留空 = 不改（用户只是改了个头名，不必重输令牌）
-      if (value.isNotEmpty) {
-        final ok = await SecretStore.write(BackupWebClient.secretKey, value);
-        if (!ok) {
-          if (mounted) showToast('写入系统密钥库失败');
-          return;
-        }
-      }
-      await settings.setWebBackupConfig(
-        current.copyWith(headerName: name, headerValue: ''),
-      );
+    await settings.setWebBackupConfig(next);
+    // 基线一起推进：否则下次 build 会判定为「外部变更」，
+    // 加密模式下会把用户刚输入的密码从输入框里抹掉
+    _davSynced = next;
+    if (uri.isEmpty) {
+      if (mounted) showToast('已保存（地址为空，未做连接测试）');
       return;
     }
-    await settings.setWebBackupConfig(
-      current.copyWith(headerName: name, headerValue: value),
+    if (!mounted) return;
+    setState(() => _busy = true);
+    try {
+      final result = await BackupWebClient.instance.test(next);
+      if (!mounted) return;
+      showToast(result.ok ? '配置成功' : '配置失败：${result.message}');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 切换密码存储方式（明文 ↔ 系统密钥库）
+  Future<void> _toggleDavSecret(SettingsProvider settings, bool secure) async {
+    final target = secure ? SecretStoreMode.secure : SecretStoreMode.plain;
+    // 切到明文前先把输入框里的值落进设置，否则刚输入的密码会丢
+    if (!secure && _davPassCtr.text.isNotEmpty) {
+      await settings.setWebBackupConfig(
+        settings.backupSettings.web.copyWith(password: _davPassCtr.text),
+      );
+    }
+    final ok = await settings.setWebBackupSecretMode(target);
+    if (!mounted) return;
+    if (!ok) {
+      showToast('该平台不支持系统密钥库，已保持原方式');
+      return;
+    }
+    // 切模式会搬值，控制器要跟着同步一次
+    final web = settings.backupSettings.web;
+    _davPassCtr.text = web.secretMode == SecretStoreMode.secure
+        ? ''
+        : web.password;
+    _davSynced = web;
+    showToast(
+      web.secretMode == SecretStoreMode.secure ? '已存入系统密钥库' : '已改为明文保存',
     );
   }
 
+  /// 手动上传一次备份包（对应 PiliPlus 的「备份设置」按钮）
   Future<void> _runWebUpload(
     SettingsProvider settings,
     BackupSettings backup,
@@ -1161,6 +1293,33 @@ class _BackupPageState extends State<BackupPage> {
       showToast(upload.message);
     } catch (e) {
       if (mounted) showToast('上传失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 从云端读回备份包并走与「从文件导入」完全相同的流程
+  /// （对应 PiliPlus 的「恢复设置」按钮）。
+  ///
+  /// 复用 `_importText`：敏感项确认、模块挑选、合并/覆盖、失败策略
+  /// 一个都不少，避免云端恢复走一条更宽松的旁路。
+  Future<void> _runWebRestore(SettingsProvider settings) async {
+    final web = settings.backupSettings.web;
+    if (!web.usable) {
+      showToast('请先填写并保存 WebDAV 地址');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = await BackupWebClient.instance.download(web);
+      if (!mounted) return;
+      if (!result.ok || result.text == null) {
+        showToast(result.message);
+        return;
+      }
+      await _importText(settings, result.text!);
+    } catch (e) {
+      if (mounted) showToast('恢复失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1263,7 +1422,9 @@ class _BackupPageState extends State<BackupPage> {
         );
         if (unit == null) return;
         await settings.setWebBackupConfig(
-          web.copyWith(schedule: s.copyWith(interval: v, unit: unit)),
+          web.copyWith(
+            schedule: s.copyWith(interval: v, unit: unit),
+          ),
         );
         settings.applyBackupRuntimeConfig();
       },
@@ -1336,29 +1497,6 @@ class _BackupPageState extends State<BackupPage> {
     }
   }
 
-  Future<String?> _askText({
-    required String title,
-    String? description,
-    String initValue = '',
-    TextInputType keyboardType = TextInputType.text,
-    bool obscure = false,
-  }) => showDialog<String>(
-    context: context,
-    builder: (_) => _TextInputDialog(
-      title: title,
-      description: description,
-      initValue: initValue,
-      keyboardType: keyboardType,
-      obscure: obscure,
-    ),
-  );
-
-  static String _maskSecret(String value) {
-    if (value.isEmpty) return '（未填写）';
-    if (value.length <= 8) return '••••';
-    return '${value.substring(0, 6)}••••${value.substring(value.length - 2)}';
-  }
-
   static String _fmtTime(DateTime? at) {
     if (at == null) return '未知时间';
     String two(int v) => v.toString().padLeft(2, '0');
@@ -1371,81 +1509,5 @@ class _BackupPageState extends State<BackupPage> {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${n.year}${two(n.month)}${two(n.day)}_'
         '${two(n.hour)}${two(n.minute)}${two(n.second)}';
-  }
-}
-
-/// 单行文本输入弹窗（设置页没有通用的文本输入弹窗，这里按需自带一个）。
-///
-/// 控制器由 State 持有并在 dispose 释放：不能在 `await showDialog` 之后释放，
-/// 弹窗退场动画期间子树仍会重建（同 docs/07 #51 的教训）。
-class _TextInputDialog extends StatefulWidget {
-  const _TextInputDialog({
-    required this.title,
-    this.description,
-    required this.initValue,
-    required this.keyboardType,
-    required this.obscure,
-  });
-
-  final String title;
-  final String? description;
-  final String initValue;
-  final TextInputType keyboardType;
-  final bool obscure;
-
-  @override
-  State<_TextInputDialog> createState() => _TextInputDialogState();
-}
-
-class _TextInputDialogState extends State<_TextInputDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.initValue,
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.description != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                widget.description!,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-              ),
-            ),
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            keyboardType: widget.keyboardType,
-            obscureText: widget.obscure,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('保存'),
-        ),
-      ],
-    );
   }
 }

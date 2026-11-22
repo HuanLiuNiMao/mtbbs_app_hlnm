@@ -114,11 +114,8 @@ enum BackupIntervalUnit {
     BackupIntervalUnit.weeks => 60 * 24 * 7,
   };
 
-  static BackupIntervalUnit fromName(String? name) =>
-      BackupIntervalUnit.values.firstWhere(
-        (e) => e.name == name,
-        orElse: () => BackupIntervalUnit.days,
-      );
+  static BackupIntervalUnit fromName(String? name) => BackupIntervalUnit.values
+      .firstWhere((e) => e.name == name, orElse: () => BackupIntervalUnit.days);
 }
 
 /// 系统级定时备份的约束策略。
@@ -221,25 +218,43 @@ class BackupSchedulePolicy {
   );
 }
 
-/// Web 备份服务器配置（用户自备：自建 HTTP 接口 / NAS / WebDAV 网关）。
+/// Web 备份（WebDAV）配置。
+///
+/// 形式与逻辑借鉴 [bggRGjQaUbCoE/PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus)
+/// 的 `lib/pages/webdav/`：用户只填「地址 / 用户 / 密码 / 路径」四项，
+/// 客户端按标准 WebDAV 协议在 `路径/mtbbs/` 下读写一个固定文件名的备份包。
+///
+/// 与原先「POST/PUT 到任意自建 HTTP 接口」相比，这样可以直接对接
+/// 坚果云、Nextcloud、群晖等标准 WebDAV 服务，用户不必再自己写接收脚本；
+/// 代价是服务器必须真的支持 WebDAV（PROPFIND/MKCOL/PUT/GET）。
 class WebBackupConfig {
-  /// 上传地址（POST/PUT 到该 URL，body 为备份包 JSON）
-  final String url;
+  /// 云端备份文件的固定文件名。
+  ///
+  /// 不用 PiliPlus 的 `piliplus_settings_${platform}.json`：带平台后缀会让
+  /// 「Windows 备份、手机恢复」这种最常见的换机场景找不到文件。
+  static const String defaultFileName = 'mtbbs_backup.json';
 
-  /// 'POST' | 'PUT'
-  final String method;
+  /// 应用在 WebDAV 根目录下自建的子目录，避免与用户其它文件混在一起。
+  static const String appFolder = 'mtbbs';
 
-  /// 鉴权头名（默认 Authorization，可填 `X-Api-Key` 等）
-  final String headerName;
+  /// WebDAV 根地址，例如 `https://dav.jianguoyun.com/dav/`
+  final String uri;
 
-  /// 鉴权头值（如 `Bearer xxx`）。
+  /// 登录用户名（坚果云填账号邮箱）
+  final String username;
+
+  /// 登录密码（坚果云填「应用授权码」，不是登录密码）。
   ///
   /// [secretMode] 为 [SecretStoreMode.secure] 时这里是**空串**，
-  /// 真值在系统密钥库里（见 `SecretStore`）。明文模式下才落这里。
-  final String headerValue;
+  /// 真值在系统密钥库里（键见 `BackupWebClient.secretKey`）。
+  final String password;
 
-  /// 鉴权头值的存储方式（明文 / 系统密钥库）
+  /// 密码的存储方式（明文 / 系统密钥库）
   final SecretStoreMode secretMode;
+
+  /// 云端子目录（相对 [uri]），可留空。实际落点是
+  /// `{uri}/{directory}/mtbbs/mtbbs_backup.json`。
+  final String directory;
 
   /// 仅 Wi-Fi 下上传
   final bool wifiOnly;
@@ -257,11 +272,11 @@ class WebBackupConfig {
   final String lastResult;
 
   const WebBackupConfig({
-    this.url = '',
-    this.method = 'POST',
-    this.headerName = 'Authorization',
-    this.headerValue = '',
+    this.uri = '',
+    this.username = '',
+    this.password = '',
     this.secretMode = SecretStoreMode.plain,
+    this.directory = '',
     this.wifiOnly = false,
     this.includeLogs = false,
     this.schedule = const BackupSchedulePolicy(),
@@ -269,11 +284,29 @@ class WebBackupConfig {
     this.lastResult = '',
   });
 
-  /// 地址是否可用（能被 Uri 解析）
+  /// 地址是否可用（必须是 http/https）。
+  ///
+  /// 只校验到 scheme 一层：WebDAV 服务可能挂在任意路径甚至非标准端口，
+  /// 这里做更严格的形状校验只会误伤合法地址，真正的可达性由
+  /// 「保存并测试连接」去验证。
   bool get usable {
-    final uri = Uri.tryParse(url.trim());
-    return uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+    final parsed = Uri.tryParse(uri.trim());
+    return parsed != null &&
+        (parsed.scheme == 'http' || parsed.scheme == 'https');
   }
+
+  /// 去掉空白与首尾斜杠后的目录片段（空目录返回空列表）。
+  ///
+  /// 以 `/` 切分而不是直接拼字符串：用户很可能填 `/backup/` 或 `backup`，
+  /// 两种写法都应该落到同一个目录。
+  List<String> get directorySegments => [
+    for (final s in directory.split('/'))
+      if (s.trim().isNotEmpty) s.trim(),
+  ];
+
+  /// 云端文件的相对路径（仅用于界面展示与日志，不含 [uri]）
+  String get remoteFileLabel =>
+      [...directorySegments, appFolder, defaultFileName].join('/');
 
   /// 定时备份是否开启
   bool get scheduled => schedule.enabled;
@@ -281,16 +314,16 @@ class WebBackupConfig {
   /// 兼容旧字段：定时间隔（分钟）
   int get intervalMinutes => schedule.intervalMinutes;
 
-  /// 是否已配置鉴权头（明文模式看字段，加密模式看密钥库里有没有）
-  bool get hasAuthHeader => headerName.trim().isNotEmpty;
+  /// 是否已填写用户名（WebDAV 基本认证需要）
+  bool get hasUsername => username.trim().isNotEmpty;
 
   Map<String, dynamic> toMap() => {
-    'url': url,
-    'method': method,
-    'headerName': headerName,
+    'uri': uri,
+    'username': username,
     // 加密模式下不把真值写进设置文档（写空串），避免「以为加密了其实还留了一份」
-    'headerValue': secretMode == SecretStoreMode.secure ? '' : headerValue,
+    'password': secretMode == SecretStoreMode.secure ? '' : password,
     'secretMode': secretMode.name,
+    'directory': directory,
     'wifiOnly': wifiOnly,
     'includeLogs': includeLogs,
     'schedule': schedule.toMap(),
@@ -313,11 +346,12 @@ class WebBackupConfig {
                 )
               : const BackupSchedulePolicy());
     return WebBackupConfig(
-      url: map['url']?.toString() ?? d.url,
-      method: (map['method']?.toString() ?? d.method).toUpperCase(),
-      headerName: map['headerName']?.toString() ?? d.headerName,
-      headerValue: map['headerValue']?.toString() ?? d.headerValue,
+      // 兼容：老版本字段叫 url，含义同样是「服务器地址」
+      uri: map['uri']?.toString() ?? map['url']?.toString() ?? d.uri,
+      username: map['username']?.toString() ?? d.username,
+      password: map['password']?.toString() ?? d.password,
       secretMode: SecretStoreMode.fromName(map['secretMode']?.toString()),
+      directory: map['directory']?.toString() ?? d.directory,
       wifiOnly: map['wifiOnly'] as bool? ?? d.wifiOnly,
       includeLogs: map['includeLogs'] as bool? ?? d.includeLogs,
       schedule: schedule,
@@ -327,22 +361,22 @@ class WebBackupConfig {
   }
 
   WebBackupConfig copyWith({
-    String? url,
-    String? method,
-    String? headerName,
-    String? headerValue,
+    String? uri,
+    String? username,
+    String? password,
     SecretStoreMode? secretMode,
+    String? directory,
     bool? wifiOnly,
     bool? includeLogs,
     BackupSchedulePolicy? schedule,
     String? lastRunAt,
     String? lastResult,
   }) => WebBackupConfig(
-    url: url ?? this.url,
-    method: method ?? this.method,
-    headerName: headerName ?? this.headerName,
-    headerValue: headerValue ?? this.headerValue,
+    uri: uri ?? this.uri,
+    username: username ?? this.username,
+    password: password ?? this.password,
     secretMode: secretMode ?? this.secretMode,
+    directory: directory ?? this.directory,
     wifiOnly: wifiOnly ?? this.wifiOnly,
     includeLogs: includeLogs ?? this.includeLogs,
     schedule: schedule ?? this.schedule,

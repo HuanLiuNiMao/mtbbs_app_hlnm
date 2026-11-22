@@ -97,8 +97,9 @@ void main() {
     test('账号与 Cookie 是两个独立项，可各自单独勾选', () {
       // 从空集开始勾：只勾账号，不应把 Cookie 一起带上
       // （否则「只搬账号不搬凭据」这个诉求做不到）
-      final onlyAccounts = const BackupSelection({})
-          .toggled(BackupItemId.accountCookies);
+      final onlyAccounts = const BackupSelection(
+        {},
+      ).toggled(BackupItemId.accountCookies);
       expect(onlyAccounts.contains(BackupItemId.accountCookies), isTrue);
       expect(onlyAccounts.contains(BackupItemId.cookies), isFalse);
       expect(
@@ -108,8 +109,9 @@ void main() {
       );
 
       // 反过来：只勾 Cookie，不应把账号列表一起带上
-      final onlyCookies = const BackupSelection({})
-          .toggled(BackupItemId.cookies);
+      final onlyCookies = const BackupSelection(
+        {},
+      ).toggled(BackupItemId.cookies);
       expect(onlyCookies.contains(BackupItemId.cookies), isTrue);
       expect(onlyCookies.contains(BackupItemId.accountCookies), isFalse);
       // 同样要带站点设置（否则没有 host → baseUrl 可查）
@@ -118,7 +120,10 @@ void main() {
 
     test('Cookie 项是敏感的，账号列表不是', () {
       expect(BackupCatalog.byId(BackupItemId.cookies).sensitive, isTrue);
-      expect(BackupCatalog.byId(BackupItemId.accountCookies).sensitive, isFalse);
+      expect(
+        BackupCatalog.byId(BackupItemId.accountCookies).sensitive,
+        isFalse,
+      );
     });
 
     test('cookies 排在 account_cookies 之后（导入顺序）', () {
@@ -161,10 +166,10 @@ void main() {
         selected: {BackupItemId.appSettings, BackupItemId.siteSettings},
         webEnabled: true,
         web: WebBackupConfig(
-          url: 'https://nas.local/backup',
-          method: 'PUT',
-          headerName: 'X-Api-Key',
-          headerValue: 'secret',
+          uri: 'https://dav.jianguoyun.com/dav/',
+          username: 'me@example.com',
+          password: 'app-token',
+          directory: 'backup',
           schedule: BackupSchedulePolicy(
             interval: 60,
             unit: BackupIntervalUnit.minutes,
@@ -178,7 +183,10 @@ void main() {
       final back = BackupSettings.fromMap(src.toMap());
       expect(back.selected, src.selected);
       expect(back.webEnabled, isTrue);
-      expect(back.web.method, 'PUT');
+      expect(back.web.uri, 'https://dav.jianguoyun.com/dav/');
+      expect(back.web.username, 'me@example.com');
+      expect(back.web.password, 'app-token');
+      expect(back.web.directory, 'backup');
       expect(back.web.intervalMinutes, 60);
       expect(back.web.includeLogs, isTrue);
       expect(back.logKeepDays, 7);
@@ -187,14 +195,19 @@ void main() {
 
     test('WebBackupConfig.usable 只认 http/https', () {
       const base = WebBackupConfig();
-      expect(base.copyWith(url: 'https://nas.local/x').usable, isTrue);
-      expect(base.copyWith(url: 'http://127.0.0.1:8080/x').usable, isTrue);
-      expect(base.copyWith(url: 'ftp://nas.local/x').usable, isFalse);
-      expect(base.copyWith(url: 'nas.local').usable, isFalse);
-      expect(base.copyWith(url: '').usable, isFalse);
+      expect(base.copyWith(uri: 'https://nas.local/x').usable, isTrue);
+      expect(base.copyWith(uri: 'http://127.0.0.1:8080/x').usable, isTrue);
+      expect(base.copyWith(uri: 'ftp://nas.local/x').usable, isFalse);
+      expect(base.copyWith(uri: 'nas.local').usable, isFalse);
+      expect(base.copyWith(uri: '').usable, isFalse);
     });
     test('旧文档只有 intervalMinutes 时换算成 schedule（分钟）', () {
-      final cfg = WebBackupConfig.fromMap({'url': 'https://a.b/c', 'intervalMinutes': 90});
+      final cfg = WebBackupConfig.fromMap({
+        'url': 'https://a.b/c',
+        'intervalMinutes': 90,
+      });
+      // 老文档的 `url` 要能被读成 `uri`，否则升级后用户配置会静默丢失
+      expect(cfg.uri, 'https://a.b/c');
       expect(cfg.schedule.interval, 90);
       expect(cfg.schedule.unit, BackupIntervalUnit.minutes);
       expect(cfg.scheduled, isTrue);
@@ -222,9 +235,13 @@ void main() {
       );
       expect(schedule.isDueAt(now), isFalse, reason: '差 1 小时未满一天');
       expect(
-        schedule.copyWith(
-          lastRunAt: now.subtract(const Duration(hours: 24)).toIso8601String(),
-        ).isDueAt(now),
+        schedule
+            .copyWith(
+              lastRunAt: now
+                  .subtract(const Duration(hours: 24))
+                  .toIso8601String(),
+            )
+            .isDueAt(now),
         isTrue,
       );
     });
@@ -236,11 +253,7 @@ void main() {
         unit: BackupIntervalUnit.hours,
         lastRunAt: now.subtract(const Duration(minutes: 59)).toIso8601String(),
       );
-      expect(
-        schedule.isDueAt(now),
-        isTrue,
-        reason: '严格比较会让差 59 秒那次整体跳过一整轮',
-      );
+      expect(schedule.isDueAt(now), isTrue, reason: '严格比较会让差 59 秒那次整体跳过一整轮');
     });
 
     test('isDueAt：失败也算「跑过」（避免重试风暴）', () {
@@ -251,11 +264,7 @@ void main() {
         lastRunAt: now.subtract(const Duration(minutes: 10)).toIso8601String(),
         lastResult: 'failed: timeout',
       );
-      expect(
-        schedule.isDueAt(now),
-        isFalse,
-        reason: '上次失败但未到周期，不该立刻重试',
-      );
+      expect(schedule.isDueAt(now), isFalse, reason: '上次失败但未到周期，不该立刻重试');
     });
 
     test('schedule 单位换算 / 0 表示关闭', () {
@@ -341,14 +350,36 @@ void main() {
       expect(back.selected, src.selected);
     });
 
-    test('加密模式下 headerValue 不写进设置文档', () {
+    test('加密模式下 password 不写进设置文档', () {
       const cfg = WebBackupConfig(
-        headerName: 'Authorization',
-        headerValue: 'Bearer SECRET',
+        username: 'me@example.com',
+        password: 'app-token-SECRET',
         secretMode: SecretStoreMode.secure,
       );
-      expect(cfg.toMap()['headerValue'], '');
+      expect(cfg.toMap()['password'], '');
       expect(cfg.toMap()['secretMode'], 'secure');
+    });
+
+    test('directorySegments 吞掉多余斜杠与空白', () {
+      expect(const WebBackupConfig().directorySegments, isEmpty);
+      expect(const WebBackupConfig(directory: '/backup/').directorySegments, [
+        'backup',
+      ]);
+      expect(const WebBackupConfig(directory: 'a//b /').directorySegments, [
+        'a',
+        'b',
+      ]);
+    });
+
+    test('remoteFileLabel 拼出「路径/mtbbs/文件名」', () {
+      expect(
+        const WebBackupConfig().remoteFileLabel,
+        'mtbbs/mtbbs_backup.json',
+      );
+      expect(
+        const WebBackupConfig(directory: 'backup').remoteFileLabel,
+        'backup/mtbbs/mtbbs_backup.json',
+      );
     });
   });
 }

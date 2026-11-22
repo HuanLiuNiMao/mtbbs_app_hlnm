@@ -31,7 +31,7 @@ extension SettingsBackup on SettingsProvider {
     await BackupScheduler.instance.sync(_backup);
   }
 
-  /// 整份 Web 服务器配置（地址/方法/鉴权/间隔/仅 Wi-Fi/带日志）
+  /// 整份 WebDAV 配置（地址/用户/密码/路径/间隔/仅 Wi-Fi/带日志）
   ///
   /// 会顺带同步系统调度：地址或周期变了要重排，关掉了要取消。
   Future<void> setWebBackupConfig(WebBackupConfig config) async {
@@ -101,10 +101,10 @@ extension SettingsBackup on SettingsProvider {
     _notify();
   }
 
-  /// 切换鉴权头值的存储方式。
+  /// 切换 WebDAV 密码的存储方式。
   ///
   /// 两个方向都要搬值，否则用户会看到「切到加密后上传 401」或
-  /// 「切回明文后令牌变成空」：
+  /// 「切回明文后密码变成空」：
   /// - plain → secure：把明文值写进密钥库，然后**清空**明文字段；
   /// - secure → plain：把密钥库里的值搬回明文字段（读不到就留空，让用户重填）。
   ///
@@ -114,18 +114,18 @@ extension SettingsBackup on SettingsProvider {
     if (web.secretMode == mode) return true;
     if (mode == SecretStoreMode.secure) {
       if (!SecretStore.available) return false;
-      final plain = web.headerValue.trim();
+      final plain = web.password.trim();
       if (plain.isNotEmpty) {
         final ok = await SecretStore.write(BackupWebClient.secretKey, plain);
         if (!ok) return false;
       }
-      await setWebBackupConfig(web.copyWith(secretMode: mode, headerValue: ''));
+      await setWebBackupConfig(web.copyWith(secretMode: mode, password: ''));
       return true;
     }
     // secure → plain
     final secret = await SecretStore.read(BackupWebClient.secretKey);
     await setWebBackupConfig(
-      web.copyWith(secretMode: mode, headerValue: secret ?? ''),
+      web.copyWith(secretMode: mode, password: secret ?? ''),
     );
     // 明文里已经有一份了，密钥库里的可以删掉（避免两处并存分不清哪份生效）
     await SecretStore.delete(BackupWebClient.secretKey);
