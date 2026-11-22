@@ -1,0 +1,181 @@
+name: Upload to JianguoYun
+
+# 把某个 GitHub Release 的 APK 直接传到坚果云 WebDAV。
+#
+# 为什么需要这个工作流：GitHub Release 的下载链路在当前开发机上只有
+# 十几 KB/s，98 MB 要传两个小时，不可用。CI 跑在 Azure 上，到 GitHub
+# 与坚果云都是机房互联，几分钟就能完成。
+#
+# 触发：workflow_dispatch（手动）或 repository_dispatch（脚本，可带凭据）。
+#
+# 凭据来源（按优先级）：
+#   1. repository_dispatch 的 client_payload.jgy_user / jgy_pass —— 临时用、
+#      不落仓库。注意这种触发方式的 payload 会出现在 Actions 运行记录里，
+#      属"短时可见"，用完即弃；
+#   2. 仓库 Secrets：JGY_USER / JGY_PASS —— 长期配置，推荐。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要上传的 Release tag（如 v26.11.22-patch3）'
+        required: true
+        type: string
+      target_dir:
+        description: '坚果云目标目录（相对 /dav/ 的路径，留空 → 我的坚果云）'
+        required: false
+        default: '我的坚果云'
+        type: string
+      only_signed:
+        description: '只传已签名包（跳过 *_unsigned.apk）'
+        required: false
+        default: true
+        type: boolean
+
+  repository_dispatch:
+    types: [upload_jgy]
+
+jobs:
+  upload:
+    name: Upload APK
+    runs-on: ubuntu-latest
+    # 统一两种触发来源的取值：workflow_dispatch 读 inputs.*，
+    # repository_dispatch 读事件里的 client_payload.*
+    env:
+      WANT_TAG: ${{ github.event.inputs.tag || github.event.client_payload.tag || '' }}
+      WANT_DIR: ${{ github.event.inputs.target_dir || github.event.client_payload.target_dir || 'DEFAULT' }}
+      WANT_ONLY_SIGNED: ${{ github.event.inputs.only_signed || github.event.client_payload.only_signed || 'true' }}
+      JGY_USER: ${{ github.event.client_payload.jgy_user || secrets.JGY_USER }}
+      JGY_PASS: ${{ github.event.client_payload.jgy_pass || secrets.JGY_PASS }}
+    steps:
+      - name: 检查参数
+        run: |
+          set -euo pipefail
+          echo "tag=$WANT_TAG"
+          echo "target_dir=$WANT_DIR"
+          echo "only_signed=$WANT_ONLY_SIGNED"
+          if [ -z "$WANT_TAG" ]; then
+            echo "::error::缺少 tag"
+            exit 1
+          fi
+          if [ -z "$JGY_USER" ] || [ -z "$JGY_PASS" ]; then
+            echo "::error::缺少坚果云凭据（既没有 client_payload 也没有 Secrets）"
+            exit 1
+          fi
+          echo "凭据已就位（用户=${JGY_USER%%@*}@…）"
+
+      - name: 列出 Release 资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view "$WANT_TAG" --repo "${{ github.repository }}" \
+            --json assets --jq '.assets[] | "\(.name)\t\(.size)"' | tee assets.tsv
+          echo "共 $(wc -l < assets.tsv) 个资产"
+
+      - name: 下载资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$WANT_TAG" --repo "${{ github.repository }}" --dir dist
+          ls -la dist
+
+      - name: 过滤并上传到坚果云
+        env:
+          TARGET_DIR: ${{ env.WANT_DIR }}
+          ONLY_SIGNED: ${{ env.WANT_ONLY_SIGNED }}
+          TAG: ${{ env.WANT_TAG }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, glob, subprocess, urllib.parse, sys
+
+          user = os.environ['JGY_USER']
+          pwd = os.environ['JGY_PASS']
+          target = os.environ.get('TARGET_DIR', '').strip().strip('/')
+          # 坚果云 WebDAV 的 /dav/ 根目录只有 read 权限（PROPFIND 的
+          # current-user-privilege-set 里只列出 read），真正可写的是个人文件夹
+          # 「我的坚果云」。所以 DEFAULT 与空值都落到它。
+          if target in ('', 'DEFAULT'):
+              target = '我的坚果云'
+          only_signed = os.environ.get('ONLY_SIGNED', 'true').lower() == 'true'
+          tag = os.environ['TAG']
+
+          base = 'https://dav.jianguoyun.com/dav/'
+          if target:
+              # 逐段百分号编码，避免中文/空格把 URL 弄坏
+              target_encoded = '/'.join(urllib.parse.quote(p) for p in target.split('/'))
+              dest_dir = base + target_encoded + '/'
+          else:
+              dest_dir = base
+
+          files = sorted(glob.glob('dist/*.apk'))
+          if only_signed:
+              files = [f for f in files if '_unsigned' not in f]
+          if not files:
+              print('没有匹配的 APK', file=sys.stderr)
+              sys.exit(1)
+
+          print('目标目录:', dest_dir)
+          print('待上传:', [os.path.basename(f) for f in files])
+
+          # 先确认目标目录可写（PROPFIND 看 current-user-privilege-set）
+          chk = subprocess.run(
+              ['curl', '-s', '-u', f'{user}:{pwd}', '-X', 'PROPFIND',
+               '-H', 'Depth: 0', dest_dir],
+              capture_output=True, text=True)
+          if 'write' not in chk.stdout:
+              print('目标目录不可写（没有 write 权限）:', dest_dir, file=sys.stderr)
+              print(chk.stdout[:800], file=sys.stderr)
+              sys.exit(1)
+          print('目标目录可写')
+
+          failed = []
+          for f in files:
+              name = os.path.basename(f)
+              url = dest_dir + urllib.parse.quote(name)
+              # 坚果云要求先建空文件再 PUT 会失败，直接 PUT 即可（PUT 不存在的
+              # 资源在 WebDAV 里是合法的 create）
+              r = subprocess.run(
+                  ['curl', '-s', '-u', f'{user}:{pwd}', '-T', f, url,
+                   '-w', '%{http_code}'],
+                  capture_output=True, text=True)
+              code = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else '000'
+              ok = code in ('200', '201', '204')
+              print(f'{"OK  " if ok else "FAIL"} {name} -> {code}')
+              if not ok:
+                  print(r.stderr[-500:], file=sys.stderr)
+                  failed.append(name)
+
+          # 校验：逐个 HEAD 确认大小一致
+          print('=== 校验 ===')
+          for f in files:
+              name = os.path.basename(f)
+              url = dest_dir + urllib.parse.quote(name)
+              r = subprocess.run(
+                  ['curl', '-s', '-I', '-u', f'{user}:{pwd}', url],
+                  capture_output=True, text=True)
+              size = None
+              for ln in r.stdout.splitlines():
+                  if ln.lower().startswith('content-length:'):
+                      size = int(ln.split(':', 1)[1].strip())
+              local = os.path.getsize(f)
+              print(f'{name}: remote={size} local={local} '
+                    f'{"OK" if size == local else "MISMATCH"}')
+              if size != local:
+                  failed.append(name)
+
+          if failed:
+              print('失败:', failed, file=sys.stderr)
+              sys.exit(1)
+          print('全部上传成功')
+          PY
+
+      - name: 输出结果 URL
+        if: always()
+        env:
+          TARGET_DIR: ${{ inputs.target_dir }}
+        run: |
+          echo "坚果云目录: /dav/${TARGET_DIR:-}"
+          echo "（可在坚果云 App 或网页端对应目录查看）"
