@@ -1,0 +1,81 @@
+name: Debug APK
+
+# 只做一件事：把当前代码编成一个能装的 debug 包，用来验证代码可编译。
+# 与 release.yml 的区别（刻意的）：
+#   1. 不注入版本号 / 不发 Release / 不需要任何 Secrets；
+#   2. 不做签名剥离与 apksigner 校验；
+#   3. 只出 arm64-v8a 一个 ABI，构建时间短。
+# debug 构建走 android/app/build.gradle.kts 的 mtTestkey 回退分支
+# （仓库内置 android/app/testkey.keystore，密码 android，AOSP 公开证书），
+# 因此 fork 与上游都能直接跑通，无需配置密钥。
+#
+# Flutter 版本必须与 release.yml 保持一致：项目锁 Gradle 9.1.0 / AGP 9.0.1，
+# 与本文件使用的 Flutter 3.44.2 是配套的。用更高的 Flutter（如 3.50.x）
+# 会触发 Gradle 版本低于 Flutter 最低要求的报错。
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: debug-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug:
+    name: Build debug APK (arm64-v8a)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 迁出代码
+        uses: actions/checkout@v6
+
+      - name: 安装 JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 17
+          cache: gradle
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.2
+          cache: true
+
+      - name: 安装依赖
+        run: flutter pub get
+
+      - name: 静态分析（仅 error 会失败）
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log
+
+      - name: 构建 debug APK
+        run: flutter build apk --debug --target-platform android-arm64
+
+      - name: 确认产物存在
+        run: |
+          APK=build/app/outputs/flutter-apk/app-debug.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::未生成 $APK"
+            find build/app/outputs -name '*.apk' || true
+            exit 1
+          fi
+          ls -lh "$APK"
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtbbs-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 上传分析日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyze-log
+          path: analyze.log
+          if-no-files-found: ignore
+          retention-days: 7
