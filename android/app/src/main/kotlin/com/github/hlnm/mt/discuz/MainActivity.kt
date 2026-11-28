@@ -134,10 +134,24 @@ class MainActivity : FlutterActivity() {
                 // Dart 收到 false 时应提示用户并在需要时调 requestOverlayPermission。
                 "showBall" -> {
                     McpFloatingBallController.bind(mcpChannel!!)
-                    result.success(McpFloatingBallController.show(this))
+                    // endpoint 来自 Dart（如 http://127.0.0.1:8080/mcp），
+                    // 透传到球上显示端口标签；缺省空串 = 只画球不画标签。
+                    result.success(
+                        McpFloatingBallController.show(
+                            this,
+                            call.argument<String>("endpoint").orEmpty(),
+                        ),
+                    )
                 }
                 "hideBall" -> {
                     McpFloatingBallController.hide(this)
+                    result.success(null)
+                }
+                // 只改球下方的端口标签，不动显隐（球已显示时换地址走这里）
+                "updateEndpoint" -> {
+                    McpFloatingBallController.updateEndpoint(
+                        call.argument<String>("endpoint").orEmpty(),
+                    )
                     result.success(null)
                 }
                 // 授权页回来后 Dart 用这个探测结果决定是否自动显示球

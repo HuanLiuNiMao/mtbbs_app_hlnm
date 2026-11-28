@@ -44,6 +44,10 @@ object McpFloatingBallController {
 
     /** 冷启动 / 通道尚未就绪时暂存的点击事件，等 Dart 注册后补发 */
     private var pendingTap = false
+    /** 通道未就绪时用户已长按关球：等 Dart 注册后补发 */
+    private var pendingDismissed = false
+    /** 最近一次请求显示的监听地址，用于球重建时复用 */
+    private var currentEndpoint: String = ""
 
     /** Dart 是否希望悬浮球可见（用户可能在设置里关掉 MCP，此时不再自动显示） */
     private var wanted = false
@@ -54,6 +58,10 @@ object McpFloatingBallController {
         if (pendingTap) {
             pendingTap = false
             channel.invokeMethod("onBallTap", null)
+        }
+        if (pendingDismissed) {
+            pendingDismissed = false
+            channel.invokeMethod("onBallDismissed", null)
         }
     }
 
@@ -75,21 +83,41 @@ object McpFloatingBallController {
      * 无权限时**不弹任何东西**、只返回 false —— 由 Dart 决定怎么提示用户
      * （引导授权的话术属于 UI 层，原生不该替它决定）。
      */
-    fun show(context: Context): Boolean {
+    fun show(context: Context, endpoint: String = ""): Boolean {
         wanted = true
+        currentEndpoint = endpoint
         val appContext = context.applicationContext
 
         // 所有窗口操作统一切到主线程，避免 Dart 从后台 isolate 的调用踩到
         // "Only the original thread that created a view hierarchy can touch its views"
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { showOnMain(appContext) }
+            mainHandler.post { showOnMain(appContext, endpoint) }
             return true
         }
-        return showOnMain(appContext)
+        return showOnMain(appContext, endpoint)
     }
 
-    private fun showOnMain(appContext: Context): Boolean {
-        if (ball != null) return true
+    /**
+     * 更新悬浮球上显示的监听地址。球未显示时只记住，等下次 show 时生效。
+     */
+    fun updateEndpoint(endpoint: String) {
+        currentEndpoint = endpoint
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { ball?.setEndpoint(endpoint) }
+            return
+        }
+        ball?.setEndpoint(endpoint)
+    }
+
+    private fun showOnMain(
+        appContext: Context,
+        endpoint: String = currentEndpoint,
+    ): Boolean {
+        // 已存在：不重建窗口，只把新地址同步进去（服务重启换端口走这里）
+        ball?.let {
+            it.setEndpoint(endpoint)
+            return true
+        }
         if (!McpFloatingBall.canShowOverlay(appContext)) {
             Log.i(TAG, "悬浮球未显示：缺少「显示在其他应用上层」权限")
             return false
@@ -97,13 +125,20 @@ object McpFloatingBallController {
         return try {
             val created = McpFloatingBall.make(
                 context = appContext,
+                endpoint = endpoint,
                 onClick = { dispatchTap() },
                 onLongClick = {
                     // 长按 = 用户主动关球。同步告知 Dart，避免它在下次 start 前误以为还开着；
                     // 注意这只隐藏悬浮球，**不停止 MCP 服务**。
                     hide(appContext)
-                    wanted = false
-                    tapCallback?.invokeMethod("onBallDismissed", null)
+                    // 通道可能尚未就绪（冷启动极早期）：先记下，等 bind 时补发，
+                    // 否则 Dart 侧开关会永远停在「已开启」。
+                    val channel = tapCallback
+                    if (channel == null) {
+                        pendingDismissed = true
+                    } else {
+                        channel.invokeMethod("onBallDismissed", null)
+                    }
                 },
             )
             created.attachToScreen()

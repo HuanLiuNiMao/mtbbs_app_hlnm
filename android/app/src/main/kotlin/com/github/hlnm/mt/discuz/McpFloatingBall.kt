@@ -60,6 +60,7 @@ class McpFloatingBall private constructor(
     positionId: String,
     private val onClick: () -> Unit,
     private val onLongClick: () -> Unit,
+    endpoint: String,
 ) : View(context) {
 
     private val windowManager: WindowManager =
@@ -96,6 +97,24 @@ class McpFloatingBall private constructor(
     }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = STATUS_COLOR }
     private val ballRect = RectF()
+
+    /**
+     * 监听地址（如 `127.0.0.1:8080`）。只取「端口」部分画在球下方的标签里
+     * —— 完整地址太长，44dp 的球放不下；完整 endpoint 由点击后的快捷面板展示。
+     * 为空表示地址未知（旧版 Dart 或服务未启动），此时不画标签，球恢复成纯圆。
+     */
+    private var endpointLabel: String = formatEndpointLabel(endpoint)
+    /** 标签文字尺寸随 density 缩放，和球体文字保持同一视觉比例 */
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textSize = density * 8f
+    }
+    private val labelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#E61F1B3A")
+    }
+    private val labelRect = RectF()
 
     private var positionX = 1f
     private var positionY = Float.NaN
@@ -150,15 +169,19 @@ class McpFloatingBall private constructor(
     // ==================== 尺寸与绘制 ====================
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        // FloatingActionButton 的 mini 尺寸（40dp）在悬浮场景下最好用，直接固定
+        // FloatingActionButton 的 mini 尺寸（40dp）在悬浮场景下最好用，直接固定。
+        // 有 endpoint 时下方要多留一条标签高度，否则文字会被窗口裁掉。
         val size = (BALL_SIZE_DP * density).roundToInt()
-        setMeasuredDimension(size, size)
+        val labelHeight = if (endpointLabel.isEmpty()) 0 else LABEL_HEIGHT_DP * density
+        setMeasuredDimension(size, size + labelHeight.roundToInt())
     }
 
     override fun onDraw(canvas: Canvas) {
+        // 有标签时，圆形只占上方 44dp 区域，标签贴在其下；无标签则沿用整块高度。
+        val ballSize = (BALL_SIZE_DP * density)
         val cx = width / 2f
-        val cy = height / 2f
-        val radius = min(width, height) / 2f - ringPaint.strokeWidth
+        val cy = if (endpointLabel.isEmpty()) height / 2f else ballSize / 2f
+        val radius = ballSize / 2f - ringPaint.strokeWidth
 
         ballRect.set(cx - radius, cy - radius, cx + radius, cy + radius)
         canvas.drawCircle(cx, cy, radius, backgroundPaint)
@@ -176,6 +199,47 @@ class McpFloatingBall private constructor(
             dotRadius,
             dotPaint,
         )
+        // 球下方端口标签：让用户一眼看到 MCP 监听在哪个端口，不必点开面板
+        if (endpointLabel.isNotEmpty()) {
+            drawEndpointLabel(canvas, ballSize)
+        }
+    }
+
+    /** 在圆球正下方画一颗胶囊形端口标签（如 `:8080`）。 */
+    private fun drawEndpointLabel(canvas: Canvas, ballSize: Float) {
+        val textWidth = labelPaint.measureText(endpointLabel)
+        val padH = density * 4f
+        val padV = density * 1.5f
+        val labelH = labelPaint.descent() - labelPaint.ascent() + padV * 2
+        val centerX = width / 2f
+        val top = ballSize + density * 1f
+        labelRect.set(
+            centerX - textWidth / 2f - padH,
+            top,
+            centerX + textWidth / 2f + padH,
+            top + labelH,
+        )
+        val r = labelRect.height() / 2f
+        canvas.drawRoundRect(labelRect, r, r, labelBackgroundPaint)
+        val baseline = labelRect.centerY() - (labelPaint.descent() + labelPaint.ascent()) / 2f
+        canvas.drawText(endpointLabel, centerX, baseline, labelPaint)
+    }
+
+    /**
+     * 运行中更新监听地址（服务重启换了端口时调用）。主线程调用。
+     * 传空串则收起标签，球恢复纯圆。
+     */
+    fun setEndpoint(endpoint: String) {
+        val next = formatEndpointLabel(endpoint)
+        if (next == endpointLabel) return
+        // 尺寸可能从「有标签」变「无标签」，必须重新 measure 才不会被裁切
+        val hadLabel = endpointLabel.isNotEmpty()
+        endpointLabel = next
+        if (hadLabel != next.isNotEmpty()) {
+            requestLayout()
+        } else {
+            invalidate()
+        }
     }
 
     // ==================== 对外 API ====================
@@ -547,9 +611,30 @@ class McpFloatingBall private constructor(
         fun make(
             context: Context,
             positionId: String = DEFAULT_POSITION_ID,
+            endpoint: String = "",
             onClick: () -> Unit,
             onLongClick: () -> Unit,
-        ): McpFloatingBall = McpFloatingBall(context, positionId, onClick, onLongClick)
+        ): McpFloatingBall =
+            McpFloatingBall(context, positionId, onClick, onLongClick, endpoint)
+
+        /**
+         * 把完整的监听地址压缩成球下标签用的短文本。
+         *
+         * - `http://127.0.0.1:8080/mcp` → `:8080`
+         * - `127.0.0.1:8080`            → `:8080`
+         * - 解析不出端口时退回原串（截断到 12 字符），保证不改行为、不抛异常。
+         */
+        internal fun formatEndpointLabel(endpoint: String): String {
+            val raw = endpoint.trim()
+            if (raw.isEmpty()) return ""
+            // 去掉 scheme 与 path，只留 host:port
+            val hostPort = raw
+                .substringAfter("://", raw)
+                .substringBefore('/')
+            val port = hostPort.substringAfterLast(':', "")
+            if (port.isNotEmpty() && port.all { it.isDigit() }) return ":$port"
+            return if (raw.length > 12) raw.take(12) else raw
+        }
 
         const val DEFAULT_POSITION_ID = "mcp"
 
@@ -566,6 +651,8 @@ class McpFloatingBall private constructor(
         private const val MAX_FRAME_SECONDS = 0.032f
         private const val EDGE_MOTION_DURATION = 1000L
         private const val BALL_SIZE_DP = 44f
+        /** 标签区高度（含上下内边距），仅在 endpoint 非空时占用 */
+        private const val LABEL_HEIGHT_DP = 15f
 
         /** 与通知图标 / 品牌色保持一致的深蓝紫 */
         private val BALL_COLOR = Color.parseColor("#FF5B4BC4")

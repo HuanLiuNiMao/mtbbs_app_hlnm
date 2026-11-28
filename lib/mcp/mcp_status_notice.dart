@@ -110,7 +110,11 @@ class McpStatusNotice {
   static Future<bool> showBall(String endpoint) async {
     if (!_supportedBall) return false;
     try {
-      final ok = await _channel.invokeMethod<bool>('showBall');
+      final ok = await _channel.invokeMethod<bool>(
+        'showBall',
+        // 原生用它在球下方画端口标签（如 :8080）；不传就只剩一个光球。
+        <String, Object?>{'endpoint': endpoint},
+      );
       return ok ?? false;
     } catch (e) {
       AppLogger.w('MCP', '显示悬浮球失败: $e');
@@ -118,6 +122,20 @@ class McpStatusNotice {
     }
   }
 
+  /// 只更新球上显示的地址标签，不动球的显隐状态。
+  ///
+  /// 用于「球已经显示着、服务换了监听端口」的场景（改端口会 stop+start，
+  /// 期间球被 hide 掉，所以正常路径其实走 showBall 重建；这里作为兜底）。
+  static Future<void> updateBallEndpoint(String endpoint) async {
+    if (!_supportedBall) return;
+    try {
+      await _channel.invokeMethod('updateEndpoint', <String, Object?>{
+        'endpoint': endpoint,
+      });
+    } catch (e) {
+      AppLogger.w('MCP', '更新悬浮球地址失败: $e');
+    }
+  }
   /// 移除悬浮球。MCP 停止、用户关闭开关、或用户长按关球后都应调用。
   static Future<void> hideBall() async {
     if (!_supportedBall) return;

@@ -275,7 +275,19 @@ void main() async {
     McpStatusNotice.init(
       onNotificationTap: showMcpQuickDialog,
       onBallTap: showMcpQuickDialog,
-      onBallDismissed: () => AppLogger.i('MCP', '用户长按关闭了悬浮球'),
+      // 长按关球 = 用户表示"不要再挂了"。只隐藏球会让设置页的开关
+      // 永远停在"已开启"，所以这里顺手把 MCP 开关置 false（连带停服务）。
+      // 注意：不停服务的话球消失会让人以为 MCP 已经不在了，而实际端口
+      // 还开着 —— 这是更严重的状态不一致，所以走 setEnabled(false)。
+      onBallDismissed: () {
+        AppLogger.i('MCP', '用户长按关闭了悬浮球，同步关闭 MCP 开关');
+        unawaited(
+          McpServerController.instance.setEnabled(false).then<void>(
+            (_) {},
+            onError: (Object e) => AppLogger.w('MCP', '关闭 MCP 失败: $e'),
+          ),
+        );
+      },
     ),
   );
 
