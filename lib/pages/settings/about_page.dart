@@ -41,6 +41,22 @@ class AboutPage extends StatefulWidget {
   static const String authorUid52 = '2284282';
   static const String site52Host = 'www.52pojie.cn';
 
+  /// 上游作者的**展示名**统一写成「Bin」。
+  ///
+  /// 站点返回的 `nickname` 是论坛昵称（历史上写作「bin佬」这类口语化叫法），
+  /// 在「关于页」这类正式场合不合适。作者名属于产品呈现，不应随站点资料
+  /// 变动，因此这里做一次展示层归一化：只要命中原作者 UID，就强制显示
+  /// [authorDisplayName]；其它情况仍回落站点昵称。
+  static const String authorDisplayName = 'Bin';
+
+  /// 是否为本应用原作者（按 UID 判定，避免按昵称字符串匹配）
+  static bool isOriginalAuthorUid(String uid) =>
+      uid == authorUidMt || uid == authorUid52;
+
+  /// 作者展示名：原作者强制为 [authorDisplayName]，其余回落站点昵称
+  static String displayNameForAuthor(String uid, String fallbackNickname) =>
+      isOriginalAuthorUid(uid) ? authorDisplayName : fallbackNickname;
+
   /// 本 fork 维护者 UID（MT 论坛「环流泥猫」，即当前分发仓库的 owner）
   static const String maintainerUid = '143407';
 
@@ -527,7 +543,10 @@ class _AboutPageState extends State<AboutPage> {
               child: _personBlock(
                 cs,
                 uid: AboutPage.authorUid,
-                nickname: _author?.nickname ?? '',
+                nickname: AboutPage.displayNameForAuthor(
+                  AboutPage.authorUid,
+                  _author?.nickname ?? '',
+                ),
                 level: _authorLevelText,
                 role: '上游作者',
                 signature: _authorSignatureText,
