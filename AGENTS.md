@@ -70,6 +70,7 @@ Discuz（MT 论坛克米模板）的 Flutter 客户端。Discuz 无官方 API：
 | 新增页面 / 功能 | 11（AI 冷启动手册） |
 | 编辑器 / 快捷键与撤销 | 06 + 12 + 05 |
 | 版本发布 / 打包（本地 + GitHub Release） | 15 |
+| 分支命名 / 提交规范 / 出 debug 包（CI 手动构建） | 33 |
 | 应用图标（改比例 / 换色 / 重出各尺寸） | 16 |
 
 ### 专题实现
@@ -84,6 +85,7 @@ Discuz（MT 论坛克米模板）的 Flutter 客户端。Discuz 无官方 API：
 | 浏览记录（本地历史、按类型分 Tab、关键词搜索） | 04（`### 浏览记录的本地搜索`）+ 26（`FilterSearchField`）；实现落点：`lib/providers/history_provider.dart`、`lib/core/utils/history_filter.dart`、`lib/pages/history/history_page.dart` |
 | 人机验证 / 站点防护（挑战页、`acw_*` cookie、验证弹窗） | 20 + 07 #80 |
 | MCP 服务端（新增工具 / 能力开关 / 安全策略） | 17 + 09 |
+| MCP 悬浮球 / 系统级 overlay / 进程保活 | 32 + 17 |
 | 生成图片 / 分享图（截图保存、长图拼接、新页面接入、二维码、勾选项） | 22 + 07 #91 |
 | 帖子缓存 / 离线帖子（自动/离线 Tab、导入导出、损坏恢复、只读缓存页） | 24 + 25 + 07 |
 | 备份 / 恢复（新增备份项、Web 备份上传、运行日志） | 28 |
