@@ -52,6 +52,10 @@ Conventional Commits，中文描述：type(scope): 一句话结论。正文写�
 
 所以流程是：workflow 文件先单独提交到 main 并推送，等它变成 active，再在功能分支上触发构建。
 
+### 静态分析通过 ≠ 能编译
+dart analyze / flutter analyze 不检查 android/ 下的 Kotlin 代码。改了原生代码时，analyze 全绿但 assembleDebug 依然可能在 `compileDebugKotlin` 报错（常见是 Int / Float 类型不匹配、构造器参数个数不对）。
+判断方法：看 CI 失败步骤——若卡在「构建 debug APK」而非「静态分析」，错就在 Gradle 侧；去日志里 grep `.kt:` 能直接拿到文件行号。
+本机 Gradle 版本与 CI 不一致时，本机可能编不出来也可能编得出来，**以 CI 结果为准还是以本机为准都不绝对**；最快路径是直接让 CI 编一次。
 ## 合并前检查
 
 1. dart analyze 无 error；2. 功能分支的 debug 包能编出来；3. 文档与两个索引（AGENTS.md、README.md）同步。
