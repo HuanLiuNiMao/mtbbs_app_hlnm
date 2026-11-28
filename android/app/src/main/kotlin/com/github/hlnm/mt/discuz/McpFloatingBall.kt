@@ -172,7 +172,9 @@ class McpFloatingBall private constructor(
         // FloatingActionButton 的 mini 尺寸（40dp）在悬浮场景下最好用，直接固定。
         // 有 endpoint 时下方要多留一条标签高度，否则文字会被窗口裁掉。
         val size = (BALL_SIZE_DP * density).roundToInt()
-        val labelHeight = if (endpointLabel.isEmpty()) 0 else LABEL_HEIGHT_DP * density
+        // 注意：if/else 两分支类型不同（Int / Float）会把公共类型推成 Comparable，
+        // 导致 labelHeight.roundToInt() 无法解析，这里显式标注 Float。
+        val labelHeight: Float = if (endpointLabel.isEmpty()) 0f else LABEL_HEIGHT_DP * density
         setMeasuredDimension(size, size + labelHeight.roundToInt())
     }
 
