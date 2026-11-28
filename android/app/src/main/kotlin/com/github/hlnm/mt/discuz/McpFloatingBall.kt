@@ -136,7 +136,7 @@ class McpFloatingBall private constructor(
 
         val configuration = ViewConfiguration.get(context)
         val touchSlop = configuration.scaledTouchSlop
-        touchSlopSquare = touchSlop * touchSlop
+        touchSlopSquare = touchSlop.toFloat() * touchSlop.toFloat()
         maximumFlingVelocity = configuration.scaledMaximumFlingVelocity
         switchEdgeVelocity = configuration.scaledMinimumFlingVelocity *
             SWITCH_EDGE_MIN_FLING_MULTIPLIER
@@ -413,9 +413,9 @@ class McpFloatingBall private constructor(
         val maxX = max(0, displaySize.x - width)
         val maxY = max(0, displaySize.y - height)
         val motion = EdgeMotion(
-            clamp(params.x.toFloat(), maxX),
-            clamp(params.y.toFloat(), maxY),
-            vX, vY, maxX, switchEdgeVelocity.toFloat(),
+            clamp(params.x.toFloat(), maxX).toFloat(),
+            clamp(params.y.toFloat(), maxY).toFloat(),
+            vX, vY, maxX, maxY, switchEdgeVelocity.toFloat(),
         )
         val lastPlayTime = longArrayOf(0)
         val animator = ValueAnimator.ofFloat(0f, 1f)
@@ -464,12 +464,15 @@ class McpFloatingBall private constructor(
         var velocityX: Float,
         var velocityY: Float,
         maxX: Int,
+        maxY: Int,
         switchEdgeVelocity: Float,
     ) {
         private val gravityDirection: Int
         private var stopped = false
 
         init {
+            // 初始位置先夹在可视区域内，避免旋转/分屏后松手瞬间越界
+            y = y.coerceIn(0f, maxY.toFloat())
             val currentEdge = if (x <= maxX / 2f) -1 else 1
             gravityDirection = when {
                 currentEdge < 0 && velocityX > switchEdgeVelocity -> 1
