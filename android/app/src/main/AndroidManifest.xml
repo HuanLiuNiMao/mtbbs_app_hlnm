@@ -9,6 +9,13 @@
     <!-- MCP 运行状态前台服务（Android 14+ 需要声明服务类型对应的权限） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- MCP 运行时悬浮球（McpFloatingBall）：
+         用 WindowManager 的 TYPE_APPLICATION_OVERLAY 把小球浮在**其他应用之上**，
+         从而离开 App 界面后仍能看到 MCP 存活状态、并一键唤回快捷面板。
+         Android 6.0+ 只有声明还不够，必须引导用户到系统「显示在其他应用上层」页
+         手动授权（Settings.canDrawOverlays 为 true 才能 addView，否则抛
+         SecurityException）；API 21–22 声明即生效。 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <!-- 必须显式关闭预测性返回（android:enableOnBackInvokedCallback="false"）。
          原因：本 App targetSdk = 36（Flutter 3.44 默认值），而 Android 16+ 对
          targetSdk >= 36 的应用**默认开启**预测性返回，并停止调用 onBackPressed /

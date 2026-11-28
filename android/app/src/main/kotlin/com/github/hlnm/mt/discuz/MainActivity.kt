@@ -65,10 +65,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /// 通知被点开 → 让 Dart 弹「MCP 快捷开关」
+    /** 通知被点开 → 让 Dart 弹「MCP 快捷开关」 */
     private fun dispatchMcpTap() {
         val target = mcpChannel
         if (target == null) {
+            // 通道未建（Flutter 引擎还没配置好）：暂存，等 Dart 调用 getPendingTap 取走
             pendingMcpTap = true
         } else {
             target.invokeMethod("onNotificationTap", null)
@@ -126,6 +127,26 @@ class MainActivity : FlutterActivity() {
                     val value = pendingMcpTap
                     pendingMcpTap = false
                     result.success(value)
+                }
+                // ---- 系统级悬浮球（McpFloatingBall / McpFloatingBallController）----
+                // showBall 返回 Boolean：true 表示球已在屏幕上，false 表示缺少
+                // 「显示在其他应用上层」权限（Android 6.0+ 必须用户手动授予）。
+                // Dart 收到 false 时应提示用户并在需要时调 requestOverlayPermission。
+                "showBall" -> {
+                    McpFloatingBallController.bind(mcpChannel!!)
+                    result.success(McpFloatingBallController.show(this))
+                }
+                "hideBall" -> {
+                    McpFloatingBallController.hide(this)
+                    result.success(null)
+                }
+                // 授权页回来后 Dart 用这个探测结果决定是否自动显示球
+                "hasOverlayPermission" -> {
+                    result.success(McpFloatingBallController.hasOverlayPermission(this))
+                }
+                // 跳系统「显示在其他应用上层」设置页；返回 false 说明 ROM 没有该页面
+                "requestOverlayPermission" -> {
+                    result.success(McpFloatingBallController.requestOverlayPermission(this))
                 }
                 else -> result.notImplemented()
             }
@@ -211,6 +232,13 @@ class MainActivity : FlutterActivity() {
         // 常用的那些）不走这里，避免误停正在后台服务的 MCP。
         if (isFinishing) {
             McpStatusNotification.stop(this)
+            // 真退出：连同悬浮球窗口一起撤掉。`addView` 出去的 View 归 WindowManager
+            // 而非 Activity 所有，漏掉这步会在进程残留时留下一个点不动的幽灵球。
+            McpFloatingBallController.dispose()
+        } else {
+            // 配置变化 / 系统重建：松开 Dart 回调引用，但按 Dart 的意愿保留悬浮球
+            // （保留 = 旋转屏幕后球不闪，见 McpFloatingBallController.onEngineDetached）
+            McpFloatingBallController.onEngineDetached()
         }
         super.onDestroy()
     }

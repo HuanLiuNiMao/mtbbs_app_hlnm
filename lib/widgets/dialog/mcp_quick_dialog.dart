@@ -21,16 +21,59 @@ import 'package:mtbbs/widgets/common/toast_utils.dart'; // rootNavigatorKey（�
 /// 弹窗内只保留**一个**开关控件（开关行），不另设同语义的主按钮（见 actions 注释）；
 /// 右上角提供直达 `/settings/mcp` 的入口（与设置页「MCP 服务」分组同一份声明）。
 Future<void> showMcpQuickDialog() async {
-  var context = rootNavigatorKey.currentContext;
-  if (context == null) {
-    await WidgetsBinding.instance.endOfFrame;
-    context = rootNavigatorKey.currentContext;
+  // 防重入：冷启动可能存在「getPendingTap 补取」与「onNotificationTap 回调」
+  // 双触发；热启动连点通知也会重复调用。这里保证同一时刻只弹一个，
+  // 且 400ms 内的二次调用直接忽略（覆盖上述双触发窗口）。
+  if (_isShowing) return;
+  final now = DateTime.now();
+  if (_lastShownAt != null &&
+      now.difference(_lastShownAt!) < const Duration(milliseconds: 400)) {
+    return;
   }
-  if (context == null) return;
-  await showDialog<void>(
-    context: context,
-    builder: (_) => const _McpQuickDialog(),
-  );
+
+  _isShowing = true;
+  try {
+    final context = await _waitForRootContext();
+    if (context == null) return;
+    _lastShownAt = DateTime.now();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => const _McpQuickDialog(),
+    );
+  } finally {
+    _isShowing = false;
+  }
+}
+
+/// 是否正在显示（防重入）
+bool _isShowing = false;
+
+/// 上次弹出时间（防抖）
+DateTime? _lastShownAt;
+
+/// 等待全局根 Navigator 的 context 就绪。
+///
+/// 历史问题：点常驻通知后弹窗偶尔「打不开」。原因是原实现只等**一帧**
+/// （`endOfFrame`），如果当时根 Navigator 尚未挂载（冷启动首帧、或热启动
+/// 时 Activity 重建），一次取不到就直接 `return` 静默放弃 —— 用户看到的就是
+/// 「点了没反应」。
+///
+/// 现在改为：先立即取一次，取不到则最多等待 [_maxWait]（约 2s），每帧重试，
+/// 超时仍未就绪才真正放弃（极小概率，通常发生在引擎/首帧异常时）。
+const int _maxWaitMs = 2000;
+const int _retryIntervalMs = 16;
+
+Future<BuildContext?> _waitForRootContext() async {
+  final immediate = rootNavigatorKey.currentContext;
+  if (immediate != null) return immediate;
+
+  final deadline = DateTime.now().add(const Duration(milliseconds: _maxWaitMs));
+  while (DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: _retryIntervalMs));
+    final ctx = rootNavigatorKey.currentContext;
+    if (ctx != null) return ctx;
+  }
+  return null;
 }
 
 /// 弹窗内容：状态一瞥 + 一键开/关
