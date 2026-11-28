@@ -262,10 +262,32 @@ void main() async {
   // 应用内更新检查：仅正式版 + 开关开启时，延迟几秒后台检查（不阻塞首帧）
   scheduleAutoUpdateCheck(settings);
 
-  // Android / 鸿蒙：点常驻通知 → 弹 MCP 快捷开关（与 Windows 标题栏徽章、
-  // 「我的」页开关共用同一实现）。放在 runApp 之后：需要在交出事件循环前
-  // 挂上首帧回调，才能补取冷启动那次点击（见 McpStatusNotice.init）。
-  unawaited(McpStatusNotice.init(onNotificationTap: showMcpQuickDialog));
+  // Android / 鸿蒙：常驻通知与悬浮球的点击都落到同一个 MCP 快捷开关面板
+  // （与 Windows 标题栏徽章、「我的」页开关共用同一实现）。
+  //
+  // 放在 runApp 之后：需要在交出事件循环前挂上首帧回调，才能补取冷启动那次
+  // 通知点击（见 McpStatusNotice.init）。
+  //
+  // - 点通知 / 点球 → `showMcpQuickDialog`
+  // - 长按球 → 只关球，**不停服务**（是否继续跑由用户决定，
+  //   见 McpFloatingBallController 的 onLongClick）
+  unawaited(
+    McpStatusNotice.init(
+      onNotificationTap: showMcpQuickDialog,
+      onBallTap: showMcpQuickDialog,
+      onBallDismissed: () => AppLogger.i('MCP', '用户长按关闭了悬浮球'),
+    ),
+  );
+
+  // Android：悬浮球授权回来后自动补显示。
+  //
+  // 用户在系统「显示在其他应用上层」页授予权限 → 回到 App 触发 resumed，
+  // 这里重新探测一次；有权限且 MCP 在跑就把球加上，用户不用再点开关。
+  // 只在最外层监听一次（引擎生命周期内常驻），不自增自减监听器：
+  // `main()` 本就是单次启动流程，不存在泄漏。
+  if (Platform.isAndroid) {
+    WidgetsBinding.instance.addObserver(_McpOverlayPermissionObserver());
+  }
 
   // Android：接管系统「打开方式」传入的论坛链接
   // （UrlRouter.resolveTarget 决定落地页：App 内路由优先，兜底内置浏览器）
@@ -632,5 +654,24 @@ class _WindowsCertOverride extends HttpOverrides {
     return super.createHttpClient(context)
       ..badCertificateCallback =
           (X509Certificate cert, String host, int port) => true;
+  }
+}
+
+/// 悬浮窗权限授权回来后自动补显示 MCP 悬浮球。
+///
+/// 场景：用户在设置页打开 MCP，但还没授予「显示在其他应用上层」，
+/// `ensureFloatingBall` 会把他带到系统授权页；授权完成回到 App 时
+/// 这里触发一次重新探测，有权限就把球补上——用户不必再手动点一次开关。
+///
+/// 只在 [AppLifecycleState.resumed] 时动作：`inactive`/`paused` 阶段
+/// 还在系统设置页里，此时探测到的权限可能是旧值。
+///
+/// 非 Android 平台不注册（见 `main` 中的条件），这里不做平台判断。
+class _McpOverlayPermissionObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    // 幂等 + 静默：服务没跑 / 没权限时它自己什么都不做，可放心每次 resumed 都调。
+    unawaited(McpServerController.instance.recheckFloatingBall());
   }
 }

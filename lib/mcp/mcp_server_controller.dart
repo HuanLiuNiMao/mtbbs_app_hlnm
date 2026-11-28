@@ -236,6 +236,9 @@ class McpServerController extends ChangeNotifier {
     notifyListeners();
     if (value) {
       await start();
+      // 用户主动开启：缺悬浮窗权限就直接把他带到系统授权页
+      // （`start()` 里那次是 silent 的，只尝试不打扰）。
+      unawaited(ensureFloatingBall());
     } else {
       await stop();
     }
@@ -295,8 +298,16 @@ class McpServerController extends ChangeNotifier {
         'MCP',
         '服务已启动 $endpointUrl${_allowRemote ? '（已允许非本机连接）' : ''}',
       );
+
       // Android / 鸿蒙：通知栏常驻状态，让用户明确 MCP 正在运行
       unawaited(McpStatusNotice.show(endpointUrl));
+      // Android：系统级悬浮球（真正浮在其它应用之上），是"MCP 还活着"的最直观
+      // 信号，也是离开 App 后仍能点回快捷面板的入口。
+      //
+      // 没授予「显示在其他应用上层」时这里返回 false，**不弹任何 UI**：
+      // 授权引导放在用户主动动作（开关按钮 / 设置页）里做，见
+      // `ensureFloatingBall` —— 自动启动流程里弹系统设置页会打断用户。
+      unawaited(ensureFloatingBall(silent: true));
     } catch (e) {
       _server = null;
       _boundPort = null;
@@ -359,6 +370,9 @@ class McpServerController extends ChangeNotifier {
     _lastError = null;
     notifyListeners();
     unawaited(McpStatusNotice.hide());
+    // 球随服务一起消失：球存在的唯一含义就是"MCP 正在跑"，服务停了还留球
+    // 会误导用户以为服务仍在（球在 ⇔ 进程活 ⇔ MCP 连着，三者同生共死）。
+    unawaited(McpStatusNotice.hideBall());
     if (server == null) return;
     try {
       await server.stop();
@@ -366,6 +380,39 @@ class McpServerController extends ChangeNotifier {
     } catch (e) {
       AppLogger.w('MCP', '停止服务失败: $e');
     }
+  }
+
+  // ==================== 系统级悬浮球（Android） ====================
+
+  /// 确保 MCP 悬浮球显示在**其他应用之上**（Android 独有，其余平台 no-op）。
+  ///
+  /// 返回 true = 球已在屏幕上（含本来就显示着）；false = 没有悬浮窗权限或平台不支持。
+  ///
+  /// [silent] 为 true 时只尝试、绝不跳转系统设置页 —— 用于服务自动启动
+  /// （如开机后 `bootstrap`）这条路径：用户没主动要求，突然把他扔到系统设置
+  /// 页是很糟的体验。用户**主动**开启 MCP 时应传 false，那时缺权限就直接
+  /// 把他带到授权页，并在回来后自动补显示（见 [recheckFloatingBall]）。
+  Future<bool> ensureFloatingBall({bool silent = false}) async {
+    if (!isRunning) return false;
+    if (await McpStatusNotice.showBall(endpointUrl)) return true;
+    if (silent) return false;
+    // 缺权限：带包名跳到「显示在其他应用上层」页，回来后由 App 生命周期
+    // 回调 [recheckFloatingBall] 自动补球（用户不需要再点一次开关）。
+    final opened = await McpStatusNotice.requestOverlayPermission();
+    if (!opened) {
+      AppLogger.w('MCP', '无法跳转悬浮窗授权页（ROM 可能没有该设置项）');
+    }
+    return false;
+  }
+
+  /// 从系统授权页返回后重新探测权限；有权限且服务在跑就自动把球补上。
+  ///
+  /// 幂等、静默：无权限 / 服务没跑 / 非 Android 一律什么都不做。
+  /// 调用时机由 `main.dart` 的生命周期监听负责（`resumed` 时）。
+  Future<void> recheckFloatingBall() async {
+    if (!isRunning) return;
+    if (!await McpStatusNotice.hasOverlayPermission()) return;
+    await McpStatusNotice.showBall(endpointUrl);
   }
 
   // ==================== 配置写入 ====================
